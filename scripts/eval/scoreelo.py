@@ -1,7 +1,7 @@
 import csv
 import re
 from collections import defaultdict
-from typing import Any, DefaultDict
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import requests  # type: ignore
@@ -42,7 +42,7 @@ def fetch_presigned_datastore(presigned_url):
         resp = requests.get(cleaned_url, headers={"Host": url_parts.netloc, "User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         return resp.json()
-    except Exception as e:
+    except requests.RequestException as e:
         print(f"Error fetching datastore from {presigned_url}: {e}")
         return {}
 

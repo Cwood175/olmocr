@@ -9,7 +9,7 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import boto3
 import zstandard
@@ -95,7 +95,12 @@ def normalize_json_entry(data: dict) -> NormalizedEntry:
         except json.JSONDecodeError:
             pass
 
-        return NormalizedEntry.from_goldkey(goldkey=data["custom_id"], text=text, finish_reason=finish_reason, error=data.get("completion_error", None))
+        return NormalizedEntry.from_goldkey(
+            goldkey=data["custom_id"],
+            text=text,
+            finish_reason=finish_reason,
+            error=data.get("completion_error", None),
+        )
     elif all(field in data for field in ["s3_path", "pagenum", "text", "error", "finish_reason"]):
         return NormalizedEntry(**data)
     elif "response" in data and "body" in data["response"] and "choices" in data["response"]["body"]:
@@ -104,7 +109,9 @@ def normalize_json_entry(data: dict) -> NormalizedEntry:
             # Attempt to parse the JSON content from OpenAI's response
             parsed_content = json.loads(data["response"]["body"]["choices"][0]["message"]["content"])
             return NormalizedEntry.from_goldkey(
-                goldkey=data["custom_id"], text=parsed_content["natural_text"], finish_reason=data["response"]["body"]["choices"][0]["finish_reason"]
+                goldkey=data["custom_id"],
+                text=parsed_content["natural_text"],
+                finish_reason=data["response"]["body"]["choices"][0]["finish_reason"],
             )
         except json.JSONDecodeError:
             # Fallback if content is not valid JSON
@@ -119,7 +126,9 @@ def normalize_json_entry(data: dict) -> NormalizedEntry:
             # Attempt to parse the JSON content from OpenAI's response
             parsed_content = json.loads(data["response"]["choices"][0]["message"]["content"])
             return NormalizedEntry.from_goldkey(
-                goldkey=data["custom_id"], text=parsed_content["natural_text"], finish_reason=data["response"]["choices"][0]["finish_reason"]
+                goldkey=data["custom_id"],
+                text=parsed_content["natural_text"],
+                finish_reason=data["response"]["choices"][0]["finish_reason"],
             )
         except json.JSONDecodeError:
             # Fallback if content is not valid JSON
@@ -147,11 +156,11 @@ def load_gold_data(gold_data_path: str, max_workers: int = 8) -> dict:
     if not os.path.exists(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 
-    gold_data: Dict[str, str] = {}
+    gold_data: dict[str, str] = {}
     total_errors = 0
     total_overruns = 0
 
-    gold_jsonl_files: List[str] = list_jsonl_files(gold_data_path)
+    gold_jsonl_files: list[str] = list_jsonl_files(gold_data_path)
 
     def process_file(path: str) -> tuple:
         """Process a single JSONL file and return its data and error counts."""
@@ -185,7 +194,7 @@ def load_gold_data(gold_data_path: str, max_workers: int = 8) -> dict:
                 total_errors += file_errors
                 total_overruns += file_overruns
             except Exception as e:
-                print(f"Error processing a file: {e}")
+                logging.error(f"Error processing a file: {e}")
 
     print(f"Loaded {len(gold_data):,} gold data entries for comparison")
     print(f"Gold processing errors: {total_errors}")

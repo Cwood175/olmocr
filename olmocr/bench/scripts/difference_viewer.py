@@ -41,8 +41,8 @@ def get_model_outputs(pdf_path):
         gemini_output = run_gemini(pdf_path)
         return chatgpt_output, gemini_output
     except Exception as e:
-        print(f"Error getting model outputs for {pdf_path}: {str(e)}")
-        return f"Error: {str(e)}", f"Error: {str(e)}"
+        print(f"Error getting model outputs for {pdf_path}: {e}")
+        return f"Error: {e}", f"Error: {e}"
 
 
 def find_pdfs_in_directory(directory):
@@ -306,8 +306,8 @@ def generate_html(pdf_rules, rules_file_path, pdfs_to_process=None):
             base64_img = render_pdf_to_base64png(pdf_path, 0)
             img_html = f'<img src="data:image/png;base64,{base64_img}" alt="{pdf_name}">'
         except Exception as e:
-            print(f"Error rendering PDF: {str(e)}")
-            img_html = f'<div class="error">Error rendering PDF: {str(e)}</div>'
+            print(f"Error rendering PDF: {e}")
+            img_html = f'<div class="error">Error rendering PDF: {e}</div>'
         print(f"Getting model outputs for: {pdf_path}")
         chatgpt_output, gemini_output = get_model_outputs(pdf_path)
 

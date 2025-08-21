@@ -85,5 +85,5 @@ async def run_nanonetsocr(pdf_path: str, page_num: int = 1, model_path: str = "n
     finally:
         try:
             os.unlink(temp_image_path)
-        except Exception as e:
-            print(f"Warning: Failed to remove temporary file {temp_image_path}: {e}")
+        except Exception:
+            print(f"Warning: Failed to remove temporary file {temp_image_path}")

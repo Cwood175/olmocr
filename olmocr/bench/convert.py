@@ -67,21 +67,23 @@ async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async)
         if markdown is None:
             print(f"Warning, did not get output for {os.path.basename(output_path)}")
             # Write blank to this file, so that it's marked as an error and not just skipped in evals
-            with open(output_path, "w") as out_f:
-                out_f.write("")
+            await asyncio.get_event_loop().run_in_executor(None, _write_file, output_path, "")
             return False
 
         # Write the markdown to the output file
-        with open(output_path, "w") as out_f:
-            out_f.write(markdown)
+        await asyncio.get_event_loop().run_in_executor(None, _write_file, output_path, markdown)
 
         return True
-    except Exception as ex:
+    except OSError as ex:
         print(f"Exception {str(ex)} occurred while processing {os.path.basename(output_path)}")
         # Write blank to this file, so that it's marked as an error and not just skipped in evals
-        with open(output_path, "w") as out_f:
-            out_f.write("")
+        await asyncio.get_event_loop().run_in_executor(None, _write_file, output_path, "")
         return False
+
+
+def _write_file(path, content):
+    with open(path, "w") as out_f:
+        out_f.write(content)
 
 
 async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_text, force, max_parallel=None):
@@ -127,7 +129,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
 
                         # Decode base64 and save to temporary file
                         temp_img = tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False)
-                        temp_img.write(base64.b64decode(base64_png))
+                        await asyncio.get_event_loop().run_in_executor(None, temp_img.write, base64.b64decode(base64_png))
                         temp_img.close()
                         temp_image_files.append(temp_img.name)
 
@@ -136,7 +138,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
 
                     # Write the PDF bytes to a temporary file
                     temp_pdf = tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False)
-                    temp_pdf.write(pdf_bytes)
+                    await asyncio.get_event_loop().run_in_executor(None, temp_pdf.write, pdf_bytes)
                     temp_pdf.close()
 
                     # Update pdf_path to the new file
@@ -147,7 +149,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                     for temp_file in temp_image_files:
                         try:
                             os.remove(temp_file)
-                        except Exception as e:
+                        except OSError as e:
                             print(f"Warning: Failed to remove temporary file {temp_file}: {e}")
 
             for repeat in range(1, repeats + 1):
@@ -186,7 +188,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                         result = await task
                         if result:
                             completed += 1
-                    except Exception as e:
+                    except OSError as e:
                         print(f"Task failed: {e}")
                     finally:
                         pbar.update(1)

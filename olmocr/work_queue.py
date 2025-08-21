@@ -9,7 +9,7 @@ import os
 import random
 from asyncio import Queue, QueueEmpty
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional, Set
 
 import zstandard
 
@@ -205,7 +205,7 @@ class WorkQueue:
             # Create lock (overwrites if stale)
             try:
                 await self.backend.create_worker_lock(work_item.hash)
-            except Exception as e:
+            except OSError as e:
                 logger.warning(f"Failed to create lock for {work_item.hash}: {e}")
                 self._queue.task_done()
                 continue
@@ -269,7 +269,7 @@ class LocalBackend(Backend):
         with open(local_path, "wb") as f:
             f.write(compressed_data)
 
-    async def load_index_lines(self) -> List[str]:
+    async def load_index_lines(self) -> list[str]:
         return await asyncio.to_thread(self._download_zstd_csv_local, self._index_path)
 
     async def save_index_lines(self, lines: List[str]) -> None:
@@ -291,10 +291,10 @@ class LocalBackend(Backend):
         """Internal method to get done flag path."""
         return os.path.join(self._done_flags_dir, f"done_{work_hash}.flag")
 
-    async def _get_object_mtime(self, path: str) -> Optional[datetime.datetime]:
+    async def _get_object_mtime(self, path: str) -> datetime.datetime | None:
         """Internal method to get object mtime."""
 
-        def _get_mtime() -> Optional[datetime.datetime]:
+        def _get_mtime() -> datetime.datetime | None:
             if not os.path.exists(path):
                 return None
             return datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
@@ -318,7 +318,7 @@ class LocalBackend(Backend):
 
         def _create() -> None:
             with open(lock_path, "wb"):
-                pass
+                ...
 
         await asyncio.to_thread(_create)
 
@@ -343,7 +343,7 @@ class LocalBackend(Backend):
 
         def _create() -> None:
             with open(done_flag_path, "wb"):
-                pass
+                ...
 
         await asyncio.to_thread(_create)
 

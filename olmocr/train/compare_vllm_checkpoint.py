@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Batch VLM inference comparison between vLLM and HuggingFace.
 Processes prompts and images from WildVision-bench until finding significant mismatch.
@@ -13,7 +12,6 @@ import random
 import shutil
 import tempfile
 from io import BytesIO
-from typing import Dict, List
 
 import numpy as np
 import PIL.Image
@@ -46,7 +44,7 @@ async def download_model(model_name_or_path: str, max_retries: int = 5):
                 logger.info(f"Downloading model with hugging face '{model_name_or_path}'")
                 snapshot_download(repo_id=model_name_or_path)
                 return model_name_or_path
-        except Exception:
+        except Exception as e:
             if retry == max_retries - 1:
                 raise  # Raise on final attempt and fail the job
             logger.warning(f"Model download failed (attempt {retry + 1}/{max_retries}), retrying...")
@@ -61,7 +59,7 @@ def image_to_base64_data_url(image):
     return f"data:image/png;base64,{img_str}"
 
 
-async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> List[Dict[str, str]]:
+async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> list[dict[str, str]]:
     """Load prompts and images from olmOCR-mix-0225-benchmarkset dataset with fixed random seed."""
     print(f"Loading olmOCR-mix-0225-benchmarkset dataset with {num_samples} samples and seed {seed}")
 
@@ -94,7 +92,7 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
     print(f"Sampled {len(sampled_pdf_files)} PDFs to download")
 
     # Download only the sampled PDFs and process them
-    queries = []
+    queries: list[dict[str, str]] = []
     with tempfile.TemporaryDirectory() as temp_dir:
         for pdf_file in sampled_pdf_files:
             try:

@@ -20,7 +20,7 @@ import sqlite3
 import threading
 import unittest
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -146,7 +146,7 @@ class SpanInfo:
 @dataclass
 class RenderedEquation:
     mathml: str
-    spans: List[SpanInfo]
+    spans: list[SpanInfo]
     error: Optional[str] = None  # New field to store error messages if rendering fails
 
 
@@ -214,31 +214,29 @@ def render_equation(
     page = browser.new_page(viewport={"width": 800, "height": 400})
 
     # Basic HTML structure for rendering.
-    page_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                margin: 0;
-                background-color: {bg_color};
-                color: {text_color};
-            }}
-            #equation-container {{
-                padding: 0;
-                font-size: {font_size}px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div id="equation-container"></div>
-    </body>
-    </html>
-    """
+    page_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: {bg_color};
+            color: {text_color};
+        }}
+        #equation-container {{
+            padding: 0;
+            font-size: {font_size}px;
+        }}
+    </style>
+</head>
+<body>
+    <div id="equation-container"></div>
+</body>
+</html>"""
     page.set_content(page_html)
     page.add_style_tag(path=katex_css_path)
     page.add_script_tag(path=katex_js_path)

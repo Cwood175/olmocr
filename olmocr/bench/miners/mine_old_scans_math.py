@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 mine_old_scans_math.py - Extract mathematical equations from PDF documents.
 
@@ -18,7 +17,6 @@ import base64
 import json
 import os
 import random
-from typing import List, Optional
 
 import pypdf
 from google import genai
@@ -63,12 +61,12 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except OSError as e:
         print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
         raise
 
 
-def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[List[str]]:
+def detect_equations(pdf_path: str, page_num: int, api_key: str) -> list[str] | None:
     """
     Use Gemini to detect mathematical equations in a rendered PDF page.
 
@@ -78,7 +76,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
         api_key: Gemini API key
 
     Returns:
-        Optional[List[str]]: List of detected equations, or None if detection failed
+        list[str] | None: List of detected equations, or None if detection failed
     """
     client = genai.Client(
         api_key=os.environ.get("GEMINI_API_KEY"),
@@ -135,7 +133,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
     return data.get("equations", [])
 
 
-def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 10) -> None:
+def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: list[TextPresenceTest], max_pages_per_pdf: int = 10) -> None:
     """
     Process a single PDF, extracting equations from multiple pages.
 
@@ -178,7 +176,8 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
             equations = detect_equations(pdf_path, page_num, api_key)
 
             # Only keep equations that are non-empty
-            equations = [eq for eq in equations if len(eq.strip()) > 3]
+            if equations:
+                equations = [eq for eq in equations if len(eq.strip()) > 3]
 
             if not equations:
                 print(f"No equations detected in {pdf_filename} page {page_num+1}")
@@ -208,7 +207,7 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
 
         print(f"Completed processing {processed_pages} pages from {pdf_filename}")
 
-    except Exception as e:
+    except OSError as e:
         print(f"Error processing {pdf_filename}: {str(e)}")
 
 

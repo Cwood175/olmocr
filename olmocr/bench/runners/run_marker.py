@@ -35,7 +35,7 @@ def run_marker(pdf_path: str, page_num: int = 1) -> str:
 
     # Extract the specific page from the PDF
     pdf_to_process = pdf_path
-    temp_file = None
+    temp_dir = None
 
     if page_num > 0:  # If a specific page is requested
         reader = PdfReader(pdf_path)
@@ -50,13 +50,13 @@ def run_marker(pdf_path: str, page_num: int = 1) -> str:
         writer.add_page(reader.pages[page_num - 1])
 
         # Save the extracted page to a temporary file
-        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        temp_file.close()  # Close the file but keep the name
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_file_path = os.path.join(temp_dir.name, "page.pdf")
 
-        with open(temp_file.name, "wb") as output_pdf:
+        with open(temp_file_path, "wb") as output_pdf:
             writer.write(output_pdf)
 
-        pdf_to_process = temp_file.name
+        pdf_to_process = temp_file_path
 
     try:
         # Process the PDF (either original or single-page extract)
@@ -64,6 +64,6 @@ def run_marker(pdf_path: str, page_num: int = 1) -> str:
         text, _, images = text_from_rendered(rendered)
         return text
     finally:
-        # Clean up the temporary file if it was created
-        if temp_file and os.path.exists(temp_file.name):
-            os.unlink(temp_file.name)
+        # Clean up the temporary directory if it was created
+        if temp_dir is not None:
+            temp_dir.cleanup()

@@ -258,7 +258,7 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
     return False
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verbose_table_testing: bool = False) -> List[Dict]:
+def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verbose_table_testing: bool = False) -> list[dict]:
     """
     Generate tests from HTML content parsed from the PDF.
 

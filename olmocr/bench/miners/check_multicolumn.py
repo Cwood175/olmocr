@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
 import argparse
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict
 
 import openai
 from tqdm import tqdm
@@ -11,7 +9,7 @@ from tqdm import tqdm
 from olmocr.data.renderpdf import render_pdf_to_base64png
 
 
-def process_test_case(case: Dict[str, Any], client, pdf_dir: str, model: str = "gpt-4o") -> Dict[str, Any]:
+def process_test_case(case: dict[str, Any], client, pdf_dir: str, model: str = "gpt-4o") -> dict[str, Any]:
     """
     Send a request to GPT-4 asking if the before and after text appear in the same region.
     Include the PDF image in the prompt.

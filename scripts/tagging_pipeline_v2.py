@@ -17,7 +17,7 @@ import os
 import re
 import sys
 import time
-from typing import Optional
+from typing import Union
 from urllib.parse import urlparse
 
 import boto3
@@ -69,23 +69,23 @@ metrics = MetricsKeeper(window=60 * 5)
 class PIIClassification(BaseModel):
     primary_language: str = Field(..., description="Primary language as a two-letter code")
     document_type: str = Field(..., description="Basic summary of document type classification")
-    is_resume_cv: Optional[bool] = Field(None, description="True if the document is a page from a resume or cv")
+    is_resume_cv: bool | None = Field(None, description="True if the document is a page from a resume or cv")
 
-    is_academic_paper: Optional[bool] = None
-    is_textbook: Optional[bool] = None
-    is_news_article: Optional[bool] = None
-    is_test_or_quiz: Optional[bool] = None
-    is_homework_assignment: Optional[bool] = None
-    is_class_syllabus: Optional[bool] = None
-    is_meeting_minutes: Optional[bool] = None
-    is_legal_contract: Optional[bool] = None
-    is_form: Optional[bool] = None
-    is_correspondence_or_letter: Optional[bool] = None
-    is_public_order: Optional[bool] = None
-    is_court_notice: Optional[bool] = None
-    is_completion_certificate: Optional[bool] = None
+    is_academic_paper: bool | None = None
+    is_textbook: bool | None = None
+    is_news_article: bool | None = None
+    is_test_or_quiz: bool | None = None
+    is_homework_assignment: bool | None = None
+    is_class_syllabus: bool | None = None
+    is_meeting_minutes: bool | None = None
+    is_legal_contract: bool | None = None
+    is_form: bool | None = None
+    is_correspondence_or_letter: bool | None = None
+    is_public_order: bool | None = None
+    is_court_notice: bool | None = None
+    is_completion_certificate: bool | None = None
 
-    contains_pii: Optional[bool] = Field(None, description="True if document contains PII")
+    contains_pii: bool | None = Field(None, description="True if document contains PII")
 
 
 async def _process_single_page(page_text: str) -> PIIClassification:
@@ -122,6 +122,8 @@ async def _process_single_page(page_text: str) -> PIIClassification:
         logger.warning(f"Server network error: {e!s}")
         metrics.add_metrics(server_errors=1)
         return PIIClassification(primary_language="en", document_type="unknown", is_resume_cv=None, contains_pii=None)
+    except BaseException as e:
+        raise e
 
     metrics.add_metrics(server_requests=1)
 
@@ -219,7 +221,7 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
+    except BaseException as e:
         # Pass through errors
         raise e
     finally:
@@ -228,7 +230,7 @@ async def apost(url, json_data):
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except Exception:
                 pass
 
 
@@ -296,8 +298,7 @@ async def process_file(args, worker_id: int, file_uri: str):
     if file_uri.startswith("s3://"):
         raw = await asyncio.to_thread(get_s3_bytes_with_backoff, dataset_s3, file_uri)
     else:
-        with open(file_uri, "rb") as f:
-            raw = f.read()
+        raw = await asyncio.to_thread(lambda: open(file_uri, "rb").read())
 
     # Decompress if needed
     if file_uri.endswith(".gz"):
@@ -384,8 +385,7 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             else:
                 out_path = os.path.join(args.dataset, out_rel)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with open(out_path, "wb") as fh:
-                    fh.write(payload)
+                await asyncio.to_thread(lambda: open(out_path, "wb").write(payload))
 
             # 4. Mark queue item done
             await work_queue.mark_done(work_item)
@@ -399,9 +399,9 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             else:
                 sentinel_path = os.path.join(args.scratch, sentinel_rel)
                 os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
-                open(sentinel_path, "w").close()
+                await asyncio.to_thread(lambda: open(sentinel_path, "w").close())
 
-        except Exception as exc:
+        except BaseException as exc:
             logger.exception(f"Worker {worker_id} exception: {exc!s}")
         finally:
             semaphore.release()
@@ -500,12 +500,12 @@ async def server_task(model_name_or_path, args, semaphore):
     await asyncio.gather(stdout_task, stderr_task, timeout_task, return_exceptions=True)
 
 
-async def server_host(model_name_or_path, args, semaphore):
+def server_host(model_name_or_path, args, semaphore):
     MAX_RETRIES = 5
     retry = 0
 
     while retry < MAX_RETRIES:
-        await server_task(model_name_or_path, args, semaphore)
+        asyncio.run(server_task(model_name_or_path, args, semaphore))
         logger.warning("Server task ended")
         retry += 1
 
@@ -516,15 +516,15 @@ async def server_host(model_name_or_path, args, semaphore):
         sys.exit(1)
 
 
-async def check_server_ready():
+def check_server_ready():
     max_attempts = 300
     delay_sec = 1
     url = f"http://localhost:{SERVER_PORT}/v1/models"
 
     for attempt in range(1, max_attempts + 1):
         try:
-            async with httpx.AsyncClient() as session:
-                response = await session.get(url)
+            with httpx.Client() as session:
+                response = session.get(url)
 
                 if response.status_code == 200:
                     logger.info("server is ready.")
@@ -534,12 +534,12 @@ async def check_server_ready():
         except Exception:
             logger.warning(f"Attempt {attempt}: Please wait for model server to become ready...")
 
-        await asyncio.sleep(delay_sec)
+        time.sleep(delay_sec)
 
     raise Exception("model server did not become ready after waiting.")
 
 
-async def download_model(model_name_or_path: str):
+def download_model(model_name_or_path: str):
     if model_name_or_path.startswith("s3://") or model_name_or_path.startswith("gs://") or model_name_or_path.startswith("weka://"):
         logger.info(f"Downloading model directory from '{model_name_or_path}'")
         model_cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "olmocr", "model")
@@ -554,12 +554,12 @@ async def download_model(model_name_or_path: str):
         return model_name_or_path
 
 
-async def metrics_reporter(work_queue):
+def metrics_reporter(work_queue):
     while True:
         # Leading newlines preserve table formatting in logs
         logger.info(f"Queue remaining: {work_queue.size}")
         logger.info("\n" + str(metrics))
-        await asyncio.sleep(10)
+        time.sleep(10)
 
 
 def submit_beaker_job(args):
@@ -744,11 +744,11 @@ async def main():
     await work_queue.populate_queue(list(files), items_per_group=1)
 
     if args.beaker:
-        submit_beaker_job(args)
+        await asyncio.to_thread(submit_beaker_job, args)
         return
 
     # If you get this far, then you are doing inference and need a GPU
-    check_torch_gpu_available()
+    await asyncio.to_thread(check_torch_gpu_available)
 
     logger.info(f"Starting pipeline with PID {os.getpid()}")
 
@@ -770,7 +770,7 @@ async def main():
 
     model_server = asyncio.create_task(server_host(model_name_or_path, args, semaphore))
 
-    await check_server_ready()
+    await asyncio.to_thread(check_server_ready)
 
     metrics_task = asyncio.create_task(metrics_reporter(work_queue))
 

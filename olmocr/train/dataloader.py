@@ -10,10 +10,6 @@ from os import PathLike
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
     Type,
     TypeAlias,
     Union,
@@ -75,7 +71,7 @@ def validate_pdf_pair(md_path: Path) -> Tuple[Optional[Dict[str, Path]], Optiona
 
                 return {"markdown_path": md_path, "pdf_path": pdf_path}, None
 
-            except Exception as e:
+            except (RuntimeError, ValueError) as e:
                 return None, (pdf_path, f"Failed to load: {str(e)}")
 
     return None, None
@@ -137,6 +133,8 @@ class BaseMarkdownPDFDataset(Dataset):
                     except Exception as e:
                         logger.error(f"Error processing {md_path}: {str(e)}")
                         invalid_pdfs.append((md_path.with_suffix(".pdf"), f"Processing error: {str(e)}"))
+                        import traceback
+                        logger.error(traceback.format_exc())
 
                     pbar.update(1)
 
@@ -268,7 +266,7 @@ class FrontMatterParser(PipelineStep):
         # Parse front matter to dataclass if specified
         try:
             page_data = self._parse_front_matter(front_matter, text)
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             raise ValueError(f"Error parsing front matter for {sample['markdown_path']}: {e}")
 
         # Only add page_data field
@@ -440,7 +438,7 @@ class RotationAugmentation(PipelineStep):
 
     probability: float = 0.5  # Probability of applying rotation
 
-    def __call__(self, sample: Sample) -> Optional[Sample]:
+    def __call__(self, sample: Sample) -> Sample | None:
         """Randomly rotate image and update rotation metadata."""
         # Only proceed with given probability
         if np.random.random() > self.probability:
@@ -501,7 +499,7 @@ class RotationAugmentation(PipelineStep):
 class FilterOutRotatedDocuments(PipelineStep):
     """Pipeline step that filters out documents with rotation issues."""
 
-    def __call__(self, sample: Sample) -> Optional[Sample]:
+    def __call__(self, sample: Sample) -> Sample | None:
         """Filter out samples where rotation is invalid or rotation correction is needed."""
         # Check if page_data exists
         if "page_data" not in sample:
@@ -526,7 +524,7 @@ class AugraphyBasicAugmentations(PipelineStep):
 
     probability: float = 0.5  # Overall probability of applying any augmentation
 
-    def __call__(self, sample: Sample) -> Optional[Sample]:
+    def __call__(self, sample: Sample) -> Sample | None:
         """Apply augraphy augmentations to the image in the sample."""
         # Check that the image data exists
         if "image" not in sample:
@@ -766,7 +764,7 @@ class RandomTokenFlipper(PipelineStep):
 class MarkdownPDFDocumentDataset(BaseMarkdownPDFDataset):
     """Dataset that includes front matter parsing and PDF rendering by default."""
 
-    def __init__(self, root_dir: str | PathLike, target_longest_image_dim: int, front_matter_class=None):
+    def __init__(self, root_dir: str | os.PathLike, target_longest_image_dim: int, front_matter_class=None):
         """
         Initialize the dataset with default pipeline steps.
 
@@ -1015,7 +1013,8 @@ if __name__ == "__main__":
                         return (idx, total_length, None)
                     return (idx, None, "No labels in sample")
                 except Exception as e:
-                    return (idx, None, str(e))
+                    import traceback
+                    return (idx, None, f"{str(e)}\n{traceback.format_exc()}")
 
             # Process samples in parallel with progress bar
             sequence_lengths = []
@@ -1046,7 +1045,8 @@ if __name__ == "__main__":
                                     max_sequence_length = sequence_length
                                     max_sequence_sample_idx = idx
                         except Exception as e:
-                            errors.append((idx, f"Future error: {e}"))
+                            import traceback
+                            errors.append((idx, f"Future error: {e}\n{traceback.format_exc()}"))
                         pbar.update(1)
 
             if errors:

@@ -3,6 +3,7 @@ import os
 import tempfile
 from typing import Literal
 
+import aiofiles
 from pypdf import PdfReader, PdfWriter
 
 
@@ -45,8 +46,8 @@ async def run_docling(
 
     try:
         # Write the single-page PDF to the temporary file
-        with open(tmp_pdf_path, "wb") as f:
-            pdf_writer.write(f)
+        async with aiofiles.open(tmp_pdf_path, "wb") as f:
+            await f.write(pdf_writer.write(f))
 
         # Build the command to run docling on the single-page PDF
         if use_smoldocling:
@@ -64,8 +65,8 @@ async def run_docling(
             raise RuntimeError(f"docling command failed with return code {proc.returncode}: {error_msg}")
 
         # Read the results from the temporary markdown file
-        with open(tmp_md_path, "r", encoding="utf-8") as f:
-            result = f.read()
+        async with aiofiles.open(tmp_md_path, "r", encoding="utf-8") as f:
+            result = await f.read()
 
         return result
 

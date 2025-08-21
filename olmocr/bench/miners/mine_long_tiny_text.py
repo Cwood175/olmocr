@@ -18,7 +18,6 @@ import base64
 import json
 import os
 import random
-from typing import List
 
 import pypdf
 from google import genai
@@ -63,12 +62,12 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except (pypdf.errors.PdfReadError, IOError) as e:
         print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
         return False  # Return False instead of raising to continue processing other PDFs
 
 
-def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
+def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> list[str]:
     """
     Use Gemini to detect long text in a rendered PDF page.
 
@@ -78,7 +77,7 @@ def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
         api_key: Gemini API key
 
     Returns:
-        List[str]: List of detected text, empty list if detection failed
+        list[str]: List of detected text, empty list if detection failed
     """
     try:
         client = genai.Client(
@@ -143,13 +142,13 @@ def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
             print(f"Failed to parse JSON response for {pdf_path} page {page_num+1}")
             return []
 
-    except Exception as e:
+    except (genai.errors.APIError, ValueError) as e:
         print(f"Error detecting text in {pdf_path} page {page_num+1}: {str(e)}")
         return []
 
 
 def process_pdf(
-    pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 20, force_processing: bool = True
+    pdf_path: str, output_dir: str, api_key: str, tests: list[TextPresenceTest], max_pages_per_pdf: int = 20, force_processing: bool = True
 ) -> bool:
     """
     Process a single PDF, extracting text from multiple pages.
@@ -242,7 +241,7 @@ def process_pdf(
         print(f"Completed processing {processed_pages} pages from {pdf_filename}")
         return pdf_processed
 
-    except Exception as e:
+    except (pypdf.errors.PdfReadError, IOError) as e:
         print(f"Error processing {pdf_filename}: {str(e)}")
         return False
 

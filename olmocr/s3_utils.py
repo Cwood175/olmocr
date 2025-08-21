@@ -8,7 +8,7 @@ import posixpath
 import time
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from urllib.parse import urlparse
 
 import boto3
@@ -84,7 +84,7 @@ def expand_s3_glob(s3_client, s3_glob: str) -> dict[str, str]:
             raise
 
 
-def get_s3_bytes(s3_client, s3_path: str, start_index: Optional[int] = None, end_index: Optional[int] = None) -> bytes:
+def get_s3_bytes(s3_client, s3_path: str, start_index: int | None = None, end_index: int | None = None) -> bytes:
     is_cloud_path = s3_path.startswith("s3://") or s3_path.startswith("gs://") or s3_path.startswith("weka://")
 
     # Fall back for local files
@@ -138,14 +138,14 @@ def get_s3_bytes_with_backoff(s3_client, pdf_s3_path, max_retries: int = 8, back
                 logger.warning(f"Attempt {attempt+1} failed to get_s3_bytes for {pdf_s3_path}: {e}. Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
                 attempt += 1
-        except Exception as e:
+        except (ClientError, OSError) as e:
             wait_time = backoff_factor**attempt
             logger.warning(f"Attempt {attempt+1} failed to get_s3_bytes for {pdf_s3_path}: {e}. Retrying in {wait_time} seconds...")
             time.sleep(wait_time)
             attempt += 1
 
     logger.error(f"Failed to get_s3_bytes for {pdf_s3_path} after {max_retries} retries.")
-    raise Exception("Failed to get_s3_bytes after retries")
+    raise RuntimeError("Failed to get_s3_bytes after retries")
 
 
 def put_s3_bytes(s3_client, s3_path: str, data: bytes):
@@ -240,7 +240,7 @@ def download_directory(model_choices: List[str], local_dir: str):
                 return
             else:
                 logger.warning(f"Unsupported model path scheme: {model_path}")
-        except Exception as e:
+        except (ValueError, OSError) as e:
             logger.error(f"Failed to download from {model_path}: {e}")
             continue
 
@@ -278,7 +278,7 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
             try:
                 blob.download_to_filename(local_file_path)
                 logger.info(f"Successfully downloaded {blob.name} to {local_file_path}")
-            except Exception as e:
+            except google.cloud.exceptions.GoogleCloudError as e:
                 logger.error(f"Failed to download {blob.name} to {local_file_path}: {e}")
                 raise
 
@@ -320,7 +320,7 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
                 with open(local_file_path, "wb") as f:
                     s3_client.download_fileobj(bucket_name, obj["Key"], f, Config=transfer_config)
                 logger.info(f"Successfully downloaded {obj['Key']} to {local_file_path}")
-            except Exception as e:
+            except (boto3.exceptions.S3UploadFailedError, OSError) as e:
                 logger.error(f"Failed to download {obj['Key']} to {local_file_path}: {e}")
                 raise
 
@@ -348,6 +348,7 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
                     future.result()
                 except Exception as e:
                     logger.error(f"Error occurred during download: {e}")
+                    raise
         else:
             logger.info("All files are up-to-date. No downloads needed.")
 

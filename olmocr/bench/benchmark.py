@@ -20,7 +20,6 @@ import random
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
 
 from pypdf import PdfReader
 from tqdm import tqdm
@@ -31,8 +30,8 @@ from .utils import calculate_bootstrap_ci
 
 
 def evaluate_candidate(
-    candidate_folder: str, all_tests: List[BasePDFTest], pdf_basenames: List[str], force: bool = False
-) -> Tuple[float, int, List[str], List[str], Dict[str, List[float]], List[float], Dict[str, Dict[int, List[Tuple[BasePDFTest, bool, str]]]]]:
+    candidate_folder: str, all_tests: list[BasePDFTest], pdf_basenames: list[str], force: bool = False
+) -> tuple[float, int, list[str], list[str], dict[str, list[float]], list[float], dict[str, dict[int, list[tuple[BasePDFTest, bool, str]]]]]:
     """
     For the candidate folder (pipeline tool output), validate that it contains at least one .md file
     (i.e. repeated generations like _pg{page}_repeat{repeat}.md) for every PDF in the pdf folder.
@@ -77,7 +76,7 @@ def evaluate_candidate(
         return (0.0, len(all_tests), candidate_errors, test_failures, test_type_breakdown, all_test_scores, test_results)
 
     # Define an inner function to evaluate a single test
-    def process_test(test: BasePDFTest) -> Tuple[float, str, str, List[str], Tuple[bool, str]]:
+    def process_test(test: BasePDFTest) -> tuple[float, str, str, list[str], tuple[bool, str]]:
         local_errors = []
         test_failure = None
         pdf_name = test.pdf
@@ -108,7 +107,7 @@ def evaluate_candidate(
             try:
                 with open(md_path, "r", encoding="utf-8") as f:
                     md_content = f.read()
-            except Exception as e:
+            except OSError as e:
                 local_errors.append(f"Error reading {md_path}: {e}")
                 continue
 

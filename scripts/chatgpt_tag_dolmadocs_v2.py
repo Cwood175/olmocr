@@ -16,7 +16,6 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 import boto3
 import pydantic
@@ -99,7 +98,7 @@ class DocumentClassification(pydantic.BaseModel):
     classification_notes: str
 
     @property
-    def get_document_types(self) -> List[str]:
+    def get_document_types(self) -> list[str]:
         """Get a list of all document types identified"""
         doc_types = []
 
@@ -253,7 +252,7 @@ def get_document_info_from_line(line, file_path, line_index):
         return None
     except Exception as e:
         logger.warning(f"Error processing document in {file_path} line {line_index}: {e}")
-        return None
+        raise
 
 
 def get_all_pages(s3_client, document_files):
@@ -282,7 +281,9 @@ def get_all_pages(s3_client, document_files):
     return file_contents
 
 
-def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> Optional[DocumentClassification]:
+def chatgpt_analyze_page(
+    pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str
+) -> DocumentClassification | None:
     """Analyze a page using the ChatGPT vision model with structured outputs for document classification."""
     try:
         # Download PDF to temp file and render to image
@@ -339,7 +340,18 @@ Only classify the document based on what you can observe in the provided image, 
             messages=[
                 {
                     "role": "user",
-                    "content": [{"type": "text", "text": user_message}, {"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{base64_image}"}}],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": user_message,
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/webp;base64,{base64_image}"
+                            },
+                        }
+                    ],
                 }
             ],
             response_format=DocumentClassification,
@@ -440,7 +452,10 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
             results_by_file[source_file] = {}
 
         # Store by line index to preserve order
-        results_by_file[source_file][result["line_index"]] = {"id": result["id"], "attributes": result["attributes"]}
+        results_by_file[source_file][result["line_index"]] = {
+            "id": result["id"],
+            "attributes": result["attributes"],
+        }
 
     # Process each source file
     for source_file, file_results_dict in results_by_file.items():
@@ -501,7 +516,7 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
 
         except Exception as e:
             logger.error(f"Error writing attributes for {source_file}: {e}")
-            continue
+            raise
 
 
 def save_results(results, output_dir):
@@ -600,6 +615,7 @@ def main():
                         results.append(result)
                     except Exception as e:
                         logger.error(f"Error processing document: {e}")
+                        raise
 
             # Save results for this batch
             batch_output_dir = os.path.join(args.output_dir, f"file_{file_index+1}_batch_{batch_num}")

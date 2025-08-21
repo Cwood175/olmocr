@@ -16,7 +16,6 @@ import glob
 import os
 import re
 import shutil
-from typing import Dict, List
 
 from rapidfuzz import distance as fuzz_distance
 from tqdm import tqdm
@@ -124,7 +123,7 @@ def main():
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     texts.append(f.read())
-            except Exception as e:
+            except (IOError, OSError) as e:
                 print(f"Error reading {path}: {e}")
                 continue
 
@@ -152,7 +151,7 @@ def main():
         try:
             shutil.copy2(mediod_path, output_path)
             successful += 1
-        except Exception as e:
+        except (IOError, OSError) as e:
             print(f"Error copying {mediod_path} to {output_path}: {e}")
 
     print(f"Processing complete: {successful} mediods copied, {skipped} cases skipped")

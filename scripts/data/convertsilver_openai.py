@@ -13,7 +13,12 @@ from cached_path import cached_path
 
 def setup_logging():
     """Configure logging for the script."""
-    logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s", handlers=[logging.StreamHandler(sys.stdout)])
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 def is_s3_path(path):
@@ -76,8 +81,7 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
 
         logging.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
     except Exception as e:
-        logging.exception(e)
-        logging.error(f"Failed to process file {input_file}: {e}")
+        logging.exception(f"Failed to process file {input_file}: {e}")
 
 
 def construct_output_file_path(input_file_path, input_dir, output_dir):

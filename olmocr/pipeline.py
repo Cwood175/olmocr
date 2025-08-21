@@ -113,23 +113,23 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
         image_base64 = await asyncio.to_thread(render_pdf_to_base64png, local_pdf_path, page, target_longest_image_dim=target_longest_image_dim)
 
     if image_rotation != 0:
-        image_bytes = base64.b64decode(image_base64)
-        with Image.open(BytesIO(image_bytes)) as img:
-            if image_rotation == 90:
-                tranpose = Image.Transpose.ROTATE_90
-            elif image_rotation == 180:
-                tranpose = Image.Transpose.ROTATE_180
-            else:
-                tranpose = Image.Transpose.ROTATE_270
+        image_bytes = await asyncio.to_thread(base64.b64decode, image_base64)
+        img = await asyncio.to_thread(Image.open, BytesIO(image_bytes))
+        if image_rotation == 90:
+            tranpose = Image.Transpose.ROTATE_90
+        elif image_rotation == 180:
+            tranpose = Image.Transpose.ROTATE_180
+        else:
+            tranpose = Image.Transpose.ROTATE_270
 
-            rotated_img = img.transpose(tranpose)
+        rotated_img = await asyncio.to_thread(img.transpose, tranpose)
 
-            # Save the rotated image to a bytes buffer
-            buffered = BytesIO()
-            rotated_img.save(buffered, format="PNG")
+        # Save the rotated image to a bytes buffer
+        buffered = BytesIO()
+        await asyncio.to_thread(rotated_img.save, buffered, format="PNG")
 
         # Encode the rotated image back to base64
-        image_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        image_base64 = await asyncio.to_thread(base64.b64encode, buffered.getvalue()).decode("utf-8")
 
     return {
         "model": "olmocr",
@@ -208,7 +208,7 @@ async def apost(url, json_data):
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except Exception:
                 pass
 
 
@@ -751,8 +751,8 @@ async def vllm_server_ready(args):
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
-            logger.warning(f"Attempt {attempt}: Please wait for vllm server to become ready...")
+        except Exception as e:
+            logger.warning(f"Attempt {attempt}: Please wait for vllm server to become ready... Error: {e}")
 
         await asyncio.sleep(delay_sec)
 
@@ -777,7 +777,7 @@ async def download_model(model_name_or_path: str, max_retries: int = 5):
                 logger.info(f"Downloading model with hugging face '{model_name_or_path}'")
                 snapshot_download(repo_id=model_name_or_path)
                 return model_name_or_path
-        except Exception:
+        except Exception as e:
             if retry == max_retries - 1:
                 raise  # Raise on final attempt and fail the job
 

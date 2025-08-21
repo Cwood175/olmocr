@@ -6,7 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from os import PathLike
-from typing import List, Literal
+from typing import Literal
 
 import ftfy
 import pypdfium2 as pdfium
@@ -122,8 +122,8 @@ class ImageElement(Element):
 @dataclass(frozen=True)
 class PageReport:
     mediabox: BoundingBox
-    text_elements: List[TextElement]
-    image_elements: List[ImageElement]
+    text_elements: list[TextElement]
+    image_elements: list[ImageElement]
 
 
 def _pdf_report(local_pdf_path: str, page_num: int) -> PageReport:

@@ -16,30 +16,31 @@ def run_mineru(pdf_path: str, page_num: int = 1) -> str:
     image_writer = FileBasedDataWriter(image_output_folder.name)
     md_writer = FileBasedDataWriter(output_folder.name)
 
-    if page_num > 0:  # If a specific page is requested
-        reader = PdfReader(pdf_path)
-
-        # Check if the requested page exists
-        if page_num > len(reader.pages):
-            raise ValueError(f"Page {page_num} does not exist in the PDF. PDF has {len(reader.pages)} pages.")
-
-        # Create a new PDF with just the requested page
-        writer = PdfWriter()
-        # pypdf uses 0-based indexing, so subtract 1 from page_num
-        writer.add_page(reader.pages[page_num - 1])
-
-        # Save the extracted page to a temporary file
-        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        temp_file.close()  # Close the file but keep the name
-
-        with open(temp_file.name, "wb") as output_pdf:
-            writer.write(output_pdf)
-
-        pdf_to_process = temp_file.name
-    else:
-        pdf_to_process = pdf_path
-
+    temp_file = None
     try:
+        if page_num > 0:  # If a specific page is requested
+            reader = PdfReader(pdf_path)
+
+            # Check if the requested page exists
+            if page_num > len(reader.pages):
+                raise ValueError(f"Page {page_num} does not exist in the PDF. PDF has {len(reader.pages)} pages.")
+
+            # Create a new PDF with just the requested page
+            writer = PdfWriter()
+            # pypdf uses 0-based indexing, so subtract 1 from page_num
+            writer.add_page(reader.pages[page_num - 1])
+
+            # Save the extracted page to a temporary file
+            temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+            temp_file.close()  # Close the file but keep the name
+
+            with open(temp_file.name, "wb") as output_pdf:
+                writer.write(output_pdf)
+
+            pdf_to_process = temp_file.name
+        else:
+            pdf_to_process = pdf_path
+
         # Read the PDF file bytes
         reader = FileBasedDataReader("")
         pdf_bytes = reader.read(pdf_to_process)
@@ -70,5 +71,5 @@ def run_mineru(pdf_path: str, page_num: int = 1) -> str:
         return md_data
     finally:
         # Clean up the temporary file if it was created
-        if temp_file and os.path.exists(temp_file.name):
+        if temp_file is not None and os.path.exists(temp_file.name):
             os.unlink(temp_file.name)

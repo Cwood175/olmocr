@@ -1,7 +1,7 @@
 import asyncio
 import time
 from collections import defaultdict, deque
-from typing import Any, Deque, Dict, List, Set
+from typing import Any, Deque
 
 
 class MetricsKeeper:
@@ -108,7 +108,7 @@ class WorkerTracker:
         Each worker ID maps to another dictionary that holds counts for each state.
         """
         # Mapping from worker_id to a dictionary of state counts
-        self.worker_status: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.worker_status: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.lock = asyncio.Lock()
 
     async def clear_work(self, worker_id: int):
@@ -136,10 +136,10 @@ class WorkerTracker:
         """
         async with self.lock:
             # Determine all unique states across all workers
-            all_states: Set[str] = set()
+            all_states: set[str] = set()
             for states in self.worker_status.values():
                 all_states.update(states.keys())
-            sorted_states: List[str] = sorted(all_states)
+            sorted_states: list[str] = sorted(all_states)
 
             headers = ["Worker ID"] + sorted_states  # type: ignore
             rows = []

@@ -124,7 +124,7 @@ def generate_html_from_image(client, image_base64):
         return None
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> List[Dict]:
+def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> list[dict]:
     """
     Generate order tests from HTML content by splitting the main text into sentences and pairing them.
     Only order tests are generated.

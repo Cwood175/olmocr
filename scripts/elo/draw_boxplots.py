@@ -14,9 +14,9 @@ import re
 from pathlib import Path
 
 import click
-import matplotlib.font_manager as font_manager
-import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.font_manager
+import matplotlib.pyplot
+import numpy
 import requests
 
 # AI2 Colors
@@ -187,7 +187,7 @@ def main(input_file, output_file, manrope_medium_font_path):
         create_boxplot(names, medians, errors, ci_low, ci_high, output_file, font_path)
         click.echo(f"Plot successfully saved to {output_file}")
 
-    except Exception as e:
+    except (IOError, ValueError, requests.RequestException) as e:
         click.echo(f"Error: {str(e)}", err=True)
         raise click.Abort()
 

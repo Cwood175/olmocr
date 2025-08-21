@@ -23,7 +23,7 @@ import os
 import random
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numba
 import numpy as np
@@ -66,7 +66,7 @@ def extract_tex_content(tex_file: str) -> str:
         try:
             with open(tex_file, "r", encoding="latin-1") as f:
                 return f.read()
-        except Exception as e:
+        except OSError as e:
             logging.error("Error reading %s: %s", tex_file, e)
             return ""
 
@@ -76,7 +76,7 @@ def extract_candidate_content(candidate_file: str) -> str:
     try:
         with open(candidate_file, "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
+    except OSError as e:
         logging.error("Error reading %s: %s", candidate_file, e)
         return ""
 
@@ -175,12 +175,8 @@ def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: 
         return None
 
     # Convert strings to numpy arrays of integer character codes.
-    candidate_arr = np.empty(m, dtype=np.int32)
-    for i, c in enumerate(candidate_norm):
-        candidate_arr[i] = ord(c)
-    text_arr = np.empty(n, dtype=np.int32)
-    for j, c in enumerate(tex_norm):
-        text_arr[j] = ord(c)
+    candidate_arr = np.array([ord(c) for c in candidate_norm], dtype=np.int32)
+    text_arr = np.array([ord(c) for c in tex_norm], dtype=np.int32)
 
     dp = compute_dp(candidate_arr, text_arr)
     best_end, min_distance = find_best_end(dp, m, n)
@@ -275,7 +271,7 @@ def process_candidate_file(candidate_file: str, pdfs_folder: str, sim_threshold:
     return tests
 
 
-def process_tex_file_group(tex_basename: str, candidate_files: List[str], pdfs_folder: str, sim_threshold: float, max_pages: int) -> List[MathTest]:
+def process_tex_file_group(tex_basename: str, candidate_files: list[str], pdfs_folder: str, sim_threshold: float, max_pages: int) -> list[MathTest]:
     """
     For a given TeX file, group candidate files by page, randomly shuffle the pages,
     and process them one-by-one. Stop once max_pages (pages with valid equations) have
@@ -285,7 +281,7 @@ def process_tex_file_group(tex_basename: str, candidate_files: List[str], pdfs_f
     valid_pages = set()
 
     # Group candidate files by page number.
-    page_dict: Dict[int, List[str]] = {}
+    page_dict: dict[int, list[str]] = {}
     for candidate_file in candidate_files:
         parse_result = parse_candidate_filename(candidate_file)
         if not parse_result:
@@ -333,7 +329,7 @@ def main():
     logging.info("Found %d candidate files.", len(candidate_files))
 
     # Group candidate files by TeX basename.
-    tex_groups: Dict[str, List[str]] = {}
+    tex_groups: dict[str, list[str]] = {}
     for candidate_file in candidate_files:
         parse_result = parse_candidate_filename(candidate_file)
         if not parse_result:

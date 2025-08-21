@@ -16,7 +16,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import boto3
 import pydantic
@@ -227,8 +227,11 @@ def load_document_file(s3_client, file_path):
 
         # Return the decoded lines
         return file_bytes.decode("utf-8").strip().split("\n")
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error loading file {file_path}: {e}")
+        return []
+    except UnicodeDecodeError as e:
+        logger.error(f"Error decoding file {file_path}: {e}")
         return []
 
 
@@ -253,33 +256,32 @@ def get_document_info_from_line(line, file_path, line_index):
             return None
 
         # Just use the first page for each document
-        if page_spans:
-            page_span = page_spans[0]  # Just get the first page
-            if len(page_span) >= 3:
-                # Page spans are [start_pos, end_pos, page_num]
-                page_num = page_span[2]
+        page_span = page_spans[0]  # Just get the first page
+        if len(page_span) >= 3:
+            # Page spans are [start_pos, end_pos, page_num]
+            page_num = page_span[2]
 
-                # Extract text for this page
-                start_pos, end_pos = page_span[0], page_span[1]
-                page_text = doc["text"][start_pos:end_pos].strip()
+            # Extract text for this page
+            start_pos, end_pos = page_span[0], page_span[1]
+            page_text = doc["text"][start_pos:end_pos].strip()
 
-                # Return the information
-                return {
-                    "pdf_path": pdf_path,
-                    "page_num": page_num,
-                    "page_text": page_text,
-                    "start_pos": start_pos,
-                    "end_pos": end_pos,
-                    "doc_id": doc["id"],
-                    "source_file": file_path,
-                    "line_index": line_index,
-                }
+            # Return the information
+            return {
+                "pdf_path": pdf_path,
+                "page_num": page_num,
+                "page_text": page_text,
+                "start_pos": start_pos,
+                "end_pos": end_pos,
+                "doc_id": doc["id"],
+                "source_file": file_path,
+                "line_index": line_index,
+            }
 
         return None
     except json.JSONDecodeError:
         logger.warning(f"Invalid JSON in {file_path} line {line_index}")
         return None
-    except Exception as e:
+    except (KeyError, IndexError) as e:
         logger.warning(f"Error processing document in {file_path} line {line_index}: {e}")
         return None
 
@@ -532,7 +534,7 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
                     fh.write(payload)
                 logger.info(f"Wrote {len(file_entries)} attribute entries to {out_path}")
 
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error writing attributes for {source_file}: {e}")
             continue
 
@@ -633,6 +635,7 @@ def main():
                         results.append(result)
                     except Exception as e:
                         logger.error(f"Error processing document: {e}")
+                        results.append(None)
 
             # Save results for this batch
             batch_output_dir = os.path.join(args.output_dir, f"file_{file_index+1}_batch_{batch_num}")

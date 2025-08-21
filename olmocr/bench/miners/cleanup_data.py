@@ -80,7 +80,7 @@ def extract_single_page_pdfs(source_pdf_dir, target_pdf_dir, pdf_page_tests):
             processed_pairs.add((pdf_name, page_num))
             print(f"Created single-page PDF: {output_path}")
 
-        except Exception as e:
+        except (IOError, OSError) as e:
             print(f"Error processing {pdf_name} page {page_num}: {str(e)}")
 
     return processed_pairs

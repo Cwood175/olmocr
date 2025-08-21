@@ -6,7 +6,6 @@ import shutil
 import sys
 import tempfile
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -21,7 +20,7 @@ ALL_PDFS = []
 FORCE = False
 
 
-def find_next_unchecked_pdf() -> Optional[str]:
+def find_next_unchecked_pdf() -> str | None:
     """Find the next PDF with at least one unchecked test."""
     global PDF_TESTS, ALL_PDFS
 
@@ -58,7 +57,13 @@ def calculate_stats() -> dict:
     if total_tests > 0:
         completion = (verified_status + rejected_status) / total_tests * 100
 
-    return {"total": total_tests, "null": null_status, "verified": verified_status, "rejected": rejected_status, "completion": completion}
+    return {
+        "total": total_tests,
+        "null": null_status,
+        "verified": verified_status,
+        "rejected": rejected_status,
+        "completion": completion,
+    }
 
 
 def save_dataset(jsonl_file: str) -> None:
@@ -214,7 +219,7 @@ def goto_pdf(index):
     return redirect(url_for("index"))
 
 
-def load_dataset(dataset_file: str) -> Tuple[Dict[str, List[Dict]], List[str]]:
+def load_dataset(dataset_file: str) -> tuple[dict[str, list[dict]], list[str]]:
     """Load tests from the dataset file and organize them by PDF."""
     if not os.path.exists(dataset_file):
         raise FileNotFoundError(f"Dataset file not found: {dataset_file}")

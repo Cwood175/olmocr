@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-from typing import Any, Dict
 
 from openai import OpenAI
 
@@ -15,7 +14,7 @@ def verify_latex_match(
     model: str = "gpt-4o-2024-08-06",
     temperature: float = 0.1,
     target_longest_image_dim: int = 2048,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify if a LaTeX math expression matches what appears in a PDF page.
 
@@ -117,6 +116,11 @@ def process_jsonl_file(input_jsonl_path: str, output_jsonl_path: str, model: str
                         processed_count += 1
                     except Exception as e:
                         print(f"Line {line_num}: Error processing {pdf_path}: {str(e)}")
+                        error_result = {"pdf": pdf_path, "math": math_expr, "status": "error", "explanation": str(e)}
+                        out_file.write(json.dumps(error_result) + "\n")
+                        processed_count += 1
+                    except BaseException as e:
+                        print(f"Line {line_num}: Critical error processing {pdf_path}: {str(e)}")
                         error_result = {"pdf": pdf_path, "math": math_expr, "status": "error", "explanation": str(e)}
                         out_file.write(json.dumps(error_result) + "\n")
                         processed_count += 1

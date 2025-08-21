@@ -1,11 +1,9 @@
-from typing import Type
-
 from spacy.lang.en import English
 
 from .registry import BaseRegistry
 
 
-class SegmenterRegistry(BaseRegistry[Type["BaseSegmenter"]]):
+class SegmenterRegistry(BaseRegistry[type["BaseSegmenter"]]):
     """A registry for segmenters."""
 
 

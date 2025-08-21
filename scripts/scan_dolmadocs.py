@@ -10,7 +10,7 @@ import sqlite3
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import boto3
 import requests
@@ -67,7 +67,7 @@ def deobfuscate_code(obfuscated_code):
     reversed_encoded = obfuscated_code[::-1]
     try:
         return base64.b64decode(reversed_encoded).decode()
-    except:
+    except Exception:
         return "ERROR_DECODING"
 
 
@@ -101,7 +101,7 @@ def get_original_url(pdf_hash: str, db_path: str) -> Optional[str]:
         if result:
             return result[0]
         return None
-    except Exception as e:
+    except sqlite3.Error as e:
         print(f"Error looking up URL for PDF hash {pdf_hash}: {e}")
         return None
 
@@ -184,7 +184,7 @@ def get_random_pages(s3_client, result_files, count=30):
                 if len(random_pages) >= count:
                     break
 
-        except Exception as e:
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as e:
             print(f"Error processing {result_file}: {e}")
             continue
 
@@ -209,7 +209,7 @@ def create_html_output(random_pages, pdf_s3_client, output_path, workspace_path,
     obfuscated_code = obfuscate_code(prolific_code)
 
     # Get current date and time for the report
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     html_content = f"""
     <!DOCTYPE html>
@@ -1741,7 +1741,7 @@ def process_annotations(annotations_by_link: List[Tuple[Dict[str, Any], str, str
     return results
 
 
-def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]], pdf_s3_client=None):
+def print_annotation_report(annotation_results: dict[str, list[dict[str, Any]]], pdf_s3_client=None):
     """Print a summary report of annotations."""
     total_pages = sum(len(items) for items in annotation_results.values())
 

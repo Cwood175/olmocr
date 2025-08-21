@@ -86,7 +86,7 @@ class Token:
 class ExpressionNode:
     """Base class for expression tree nodes"""
 
-    pass
+    """Base class for expression nodes."""
 
 
 class RuleNode(ExpressionNode):
@@ -319,7 +319,7 @@ def load_jsonl_file(file_path, s3_client=None):
         lines = decompressed.decode("utf-8").strip().split("\n")
         return [json.loads(line) for line in lines if line.strip()]
 
-    except Exception as e:
+    except (ValueError, KeyError, gzip.BadGzipFile, zstd.ZstdError, UnicodeDecodeError) as e:
         logger.error(f"Error loading file {file_path}: {e}")
         return []
 

@@ -2,7 +2,6 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from typing import List
 
 from lingua import Language, LanguageDetectorBuilder
 from pypdf import PdfReader
@@ -28,9 +27,7 @@ class PdfFilter:
 
     def _is_form(self, pdf_reader) -> bool:
         # Check if the PDF is a form
-        if pdf_reader.get_form_text_fields():
-            return True
-        return False  # Not a form
+        return bool(pdf_reader.get_form_text_fields())
 
     def _is_download_spam(self, base_text: str) -> bool:
         seo_words = {

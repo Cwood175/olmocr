@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 # This is the prompt we use for getting chat gpt 4o to convert documents into our silver training data
@@ -19,12 +18,12 @@ def build_openai_silver_data_prompt(base_text: str) -> str:
 
 @dataclass(frozen=True)
 class PageResponse:
-    primary_language: Optional[str]
+    primary_language: str | None
     is_rotation_valid: bool
     rotation_correction: int
     is_table: bool
     is_diagram: bool
-    natural_text: Optional[str]
+    natural_text: str | None
 
     def __post_init__(self):
         # Validate rotation_correction is one of the allowed values
@@ -33,7 +32,7 @@ class PageResponse:
 
         # Type checks
         if not isinstance(self.primary_language, (str, type(None))):
-            raise TypeError("primary_language must be of type Optional[str].")
+            raise TypeError("primary_language must be of type str | None.")
         if not isinstance(self.is_rotation_valid, bool):
             raise TypeError("is_rotation_valid must be of type bool.")
         if not isinstance(self.rotation_correction, int):
@@ -43,7 +42,7 @@ class PageResponse:
         if not isinstance(self.is_diagram, bool):
             raise TypeError("is_diagram must be of type bool.")
         if not isinstance(self.natural_text, (str, type(None))):
-            raise TypeError("natural_text must be of type Optional[str].")
+            raise TypeError("natural_text must be of type str | None.")
 
 
 def openai_response_format_schema() -> dict:

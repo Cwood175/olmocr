@@ -17,7 +17,7 @@ Usage:
 import argparse
 import os
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import boto3
 import numpy as np
@@ -100,7 +100,7 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
         raise
 
 
-def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[List[np.ndarray], str]]:
+def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[tuple[list[np.ndarray], str]]:
     """
     Use GPT-4o to detect tables in a rendered PDF page.
 
@@ -110,7 +110,7 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
         api_key: OpenAI API key
 
     Returns:
-        Optional[Tuple[List[np.ndarray], str]]:
+        Optional[tuple[list[np.ndarray], str]]:
             A tuple with a list of detected tables (as numpy arrays) and the base64 string of the rendered page image.
             Returns None if detection fails.
     """
@@ -186,7 +186,7 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
         return None
 
 
-def generate_table_tests(tables: List[np.ndarray], pdf_image: str, api_key: str, max_tests_per_table: int = 3) -> List[Dict]:
+def generate_table_tests(tables: list[np.ndarray], pdf_image: str, api_key: str, max_tests_per_table: int = 3) -> list[dict]:
     """
     Generate table tests from the detected tables by making a second GPT-4o request for each candidate cell.
 
@@ -292,7 +292,7 @@ def generate_table_tests(tables: List[np.ndarray], pdf_image: str, api_key: str,
     return tests
 
 
-def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, tests: List[TableTest]) -> None:
+def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, tests: list[TableTest]) -> None:
     """
     Process a single PDF from S3.
 

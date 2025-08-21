@@ -3,8 +3,8 @@ import glob
 import json
 import os
 import random
+from collections.abc import Generator
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Generator
 from urllib.parse import urlparse
 
 import boto3
@@ -106,6 +106,7 @@ def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_fil
             result.append(query)
         except Exception as e:
             print(f"Error processing page {page} of {pdf_path}: {e}")
+            continue
 
     return result
 
@@ -210,7 +211,7 @@ def main():
 
                     for request_obj in request_results:
                         request_json = json.dumps(request_obj)
-                        request_size = len(request_json.encode("utf-8"))  # Calculate size in bytes
+                        request_size = len(request_json.encode())  # Calculate size in bytes
 
                         # Check if the current request can fit in the current file
                         if cur_file_size + request_size > max_file_size:

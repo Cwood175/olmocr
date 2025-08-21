@@ -4,7 +4,6 @@ import tarfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import PathLike
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -17,12 +16,12 @@ def extract_tarball(tarball_path: Path, extract_dir: Path) -> int:
         with tarfile.open(tarball_path, "r") as tar:
             tar.extractall(extract_dir)
             return len(tar.getmembers())
-    except Exception as e:
+    except tarfile.TarError as e:
         print(f"Error extracting {tarball_path}: {e}")
         return 0
 
 
-def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: str | PathLike, max_examples: Optional[int] = None) -> str:
+def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: str | PathLike, max_examples: int | None = None) -> str:
     """
     Prepare OLMoCR mix dataset by downloading from HuggingFace and organizing into a folder structure.
 
@@ -102,7 +101,8 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                                 pbar.set_postfix({"files": total_files_extracted})
                             except Exception as e:
                                 print(f"\nError with {tarball.name}: {e}")
-                            pbar.update(1)
+                            finally:
+                                pbar.update(1)
 
                 print(f"Extracted {total_files_extracted} files from tarballs to {extracted_dir}")
     else:
@@ -183,6 +183,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
             except Exception as ex:
                 print(f"Error processing line: {ex}")
                 total_errors += 1
+                continue
 
         if max_examples and total_processed >= max_examples:
             break
