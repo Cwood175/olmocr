@@ -15,7 +15,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -99,7 +98,7 @@ def parse_jsonl_entry(entry: Dict) -> Optional[Dict]:
         return None
 
 
-def extract_page_text(text: str, page_boundaries: List[List[int]]) -> Dict[int, str]:
+def extract_page_text(text: str, page_boundaries: list[list[int]]) -> dict[int, str]:
     """
     Extract text for each page based on character boundaries.
 
@@ -110,9 +109,16 @@ def extract_page_text(text: str, page_boundaries: List[List[int]]) -> Dict[int, 
     Returns:
         Dictionary mapping page number to extracted text
     """
+    if not isinstance(text, str):
+        raise ValueError("text must be a string")
+    if not isinstance(page_boundaries, list):
+        raise ValueError("page_boundaries must be a list")
+
     page_texts = {}
 
     for start_char, end_char, page_num in page_boundaries:
+        if not isinstance(start_char, int) or not isinstance(end_char, int) or not isinstance(page_num, int):
+            raise ValueError("Each page boundary must contain integer values")
         page_text = text[start_char:end_char]
         page_texts[page_num] = page_text
 
@@ -150,12 +156,15 @@ def extract_pdf_page(pdf_path: str, page_num: int, output_path: str) -> bool:
             writer.write(f)
 
         return True
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Error extracting page {page_num} from {pdf_path}: {e}")
         return False
+    except Exception as e:
+        logger.error(f"Unexpected error extracting page {page_num} from {pdf_path}: {e}")
+        raise
 
 
-def process_document(entry_data: Dict, output_dir: Path, cache_dir: Path) -> Tuple[int, int]:
+def process_document(entry_data: dict, output_dir: Path, cache_dir: Path) -> tuple[int, int]:
     """
     Process a single document: extract pages and create markdown files.
 
@@ -233,9 +242,12 @@ def process_document(entry_data: Dict, output_dir: Path, cache_dir: Path) -> Tup
                 # Remove the markdown file if PDF extraction failed
                 os.remove(md_path)
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Error processing page {page_num} of document {doc_id}: {e}")
             failed += 1
+        except Exception as e:
+            logger.error(f"Unexpected error processing page {page_num} of document {doc_id}: {e}")
+            raise
 
     return successful, failed
 

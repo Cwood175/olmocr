@@ -38,8 +38,8 @@ def process_jsonl(jsonl_file, output_dir="downloaded_images"):
 
             except json.JSONDecodeError:
                 print(f"Line {line_num}: Invalid JSON, skipping...")
-            except Exception as e:
-                print(f"Line {line_num}: Error processing - {str(e)}")
+            except requests.RequestException as e:
+                print(f"Line {line_num}: Network error - {str(e)}")
 
 
 def download_image(url, output_filename, output_dir):
@@ -97,14 +97,15 @@ def download_image(url, output_filename, output_dir):
 
         return output_path
 
-    except Exception as e:
+    except requests.RequestException as e:
         print(f"Error downloading image: {str(e)}")
+        return None
+    except OSError as e:
+        print(f"Error saving image: {str(e)}")
         return None
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(description="Download images from Library of Congress based on JSONL file")
     parser.add_argument("jsonl_file", help="Path to the JSONL file containing URLs")
     parser.add_argument("--output", "-o", default="downloaded_images", help="Directory to save downloaded images (default: downloaded_images)")

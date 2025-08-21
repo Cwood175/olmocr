@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import concurrent.futures
@@ -8,7 +10,6 @@ import re
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
 
 import pypdf
 from anthropic import Anthropic
@@ -24,14 +25,24 @@ from olmocr.data.renderpdf import (
 )
 
 
-def download_s3_pdf(s3_path, local_path):
+def download_s3_pdf(s3_path: str, local_path: str) -> bool:
     """Download a PDF from S3 to a local path."""
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    result = subprocess.run(["aws", "s3", "cp", s3_path, local_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            ["aws", "s3", "cp", s3_path, local_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+        return result.returncode == 0
+    except subprocess.CalledProcessError as exc:
+        print(f"Failed to download {s3_path}: {exc}")
+        return False
 
 
-def extract_code_block(initial_response):
+def extract_code_block(initial_response: str) -> str | None:
     # Use regex to find the last instance of a code block
     # First try to find HTML specific code blocks
     html_blocks = re.findall(r"```html\n(.*?)```", initial_response, re.DOTALL)
@@ -60,7 +71,7 @@ def extract_code_block(initial_response):
     return None
 
 
-def generate_html_from_image(client, image_base64):
+def generate_html_from_image(client, image_base64: str) -> str | None:
     """Call Claude API to generate HTML from an image using a multi-step prompting strategy."""
     png_width, png_height = get_png_dimensions_from_base64(image_base64)
 
@@ -131,12 +142,12 @@ def generate_html_from_image(client, image_base64):
                 initial_html += content.text
 
         return extract_code_block(initial_html)
-    except Exception as e:
-        print(f"Error calling Claude API: {e}")
+    except Exception as exc:
+        print(f"Error calling Claude API: {exc}")
         return None
 
 
-def extract_page_from_pdf(input_path, output_path, page_num):
+def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> bool:
     """
     Extract a specific page from a PDF and save it as a new PDF.
 
@@ -172,8 +183,8 @@ def extract_page_from_pdf(input_path, output_path, page_num):
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except Exception as exc:
+        print(f"Error extracting page {page_num} from {input_path}: {exc}")
         return False
 
 
@@ -808,15 +819,17 @@ def process_pdf(pdf_info, args, client):
                 png_width, png_height = get_png_dimensions_from_base64(image_base64)
 
                 # Run the async function in the synchronous context
-                render_success = asyncio.run(render_pdf_with_playwright(html_content, playwright_pdf_path, png_width, png_height))
+                render_success = asyncio.run(
+                    render_pdf_with_playwright(html_content, playwright_pdf_path, png_width, png_height)
+                )
 
                 if render_success:
                     print(f"Successfully rendered with Playwright: {playwright_pdf_path}")
                 else:
                     print(f"Failed to render as a single page PDF: {playwright_pdf_path}")
                     playwright_pdf_path = None
-            except Exception as e:
-                print(f"Failed to render with Playwright: {e}")
+            except Exception as exc:
+                print(f"Failed to render with Playwright: {exc}")
                 playwright_pdf_path = None
                 render_success = False
 
@@ -847,8 +860,8 @@ def process_pdf(pdf_info, args, client):
             "tests": tests,
             "num_tests": len(tests),
         }
-    except Exception as e:
-        print(f"Error processing {s3_path}: {e}")
+    except Exception as exc:
+        print(f"Error processing {s3_path}: {exc}")
         return None
     finally:
         # Clean up temp directory for this PDF
@@ -945,8 +958,8 @@ def main():
                                 test_types[test_type] += 1
 
                         print(f"Added {len(result['tests'])} tests from {result['pdf_id']}, total: {test_counter}")
-            except Exception as e:
-                print(f"Error processing {s3_path}: {e}")
+            except Exception as exc:
+                print(f"Error processing {s3_path}: {exc}")
 
     print(f"Generated {len(results)} HTML templates")
 

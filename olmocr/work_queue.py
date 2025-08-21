@@ -269,6 +269,18 @@ class LocalBackend(Backend):
         with open(local_path, "wb") as f:
             f.write(compressed_data)
 
+    def _upload_zstd_csv_local(self, local_path: str, lines: List[str]) -> None:
+        """
+        Write a zstd-compressed CSV to a local path.
+        """
+        data = "\n".join(lines).encode("utf-8")
+        cctx = zstandard.ZstdCompressor()
+        compressed_data = cctx.compress(data)
+
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as f:
+            f.write(compressed_data)
+
     async def load_index_lines(self) -> List[str]:
         return await asyncio.to_thread(self._download_zstd_csv_local, self._index_path)
 
@@ -279,7 +291,11 @@ class LocalBackend(Backend):
         def _list_completed() -> Set[str]:
             if not os.path.isdir(self._done_flags_dir):
                 return set()
-            return {f[len("done_") : -len(".flag")] for f in os.listdir(self._done_flags_dir) if f.startswith("done_") and f.endswith(".flag")}
+            return {
+                f[len("done_") : -len(".flag")]
+                for f in os.listdir(self._done_flags_dir)
+                if f.startswith("done_") and f.endswith(".flag")
+            }
 
         return await asyncio.to_thread(_list_completed)
 

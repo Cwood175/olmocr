@@ -1,6 +1,5 @@
 import os
 import subprocess
-from typing import List, Union
 
 
 def convert_image_to_pdf_bytes(image_files: Union[str, List[str]]) -> bytes:
@@ -46,8 +45,7 @@ def is_png(file_path):
         with open(file_path, "rb") as f:
             header = f.read(8)
             return header == b"\x89PNG\r\n\x1a\n"
-    except Exception as e:
-        print(f"Error: {e}")
+    except OSError:
         return False
 
 
@@ -56,6 +54,5 @@ def is_jpeg(file_path):
         with open(file_path, "rb") as f:
             header = f.read(2)
             return header == b"\xff\xd8"
-    except Exception as e:
-        print(f"Error: {e}")
+    except OSError:
         return False

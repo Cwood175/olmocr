@@ -39,20 +39,35 @@ async def run_docling(
     pdf_writer.add_page(pdf_reader.pages[zero_based_page_num])
 
     # Create temporary files for the single-page PDF and output markdown
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf_file, tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp_md_file:
-        tmp_pdf_path = tmp_pdf_file.name
-        tmp_md_path = tmp_md_file.name
+    tmp_pdf_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp_md_file = tempfile.NamedTemporaryFile(suffix=".md", delete=False)
+    tmp_pdf_path = tmp_pdf_file.name
+    tmp_md_path = tmp_md_file.name
 
     try:
         # Write the single-page PDF to the temporary file
-        with open(tmp_pdf_path, "wb") as f:
-            pdf_writer.write(f)
+        with aiofiles.open(tmp_pdf_path, "wb") as f:
+            await f.write(pdf_writer.write(f))
 
         # Build the command to run docling on the single-page PDF
         if use_smoldocling:
-            cmd = ["docling", tmp_pdf_path, "-o", tmp_md_path]  # Output file
+            cmd = [
+                "docling",
+                tmp_pdf_path,
+                "-o",
+                tmp_md_path,
+            ]  # Output file
         else:
-            cmd = ["docling", "--pipeline", "vlm", "--vlm-model", "smoldocling", tmp_pdf_path, "-o", tmp_md_path]  # Output file
+            cmd = [
+                "docling",
+                "--pipeline",
+                "vlm",
+                "--vlm-model",
+                "smoldocling",
+                tmp_pdf_path,
+                "-o",
+                tmp_md_path,
+            ]  # Output file
 
         # Run the command asynchronously
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -64,8 +79,8 @@ async def run_docling(
             raise RuntimeError(f"docling command failed with return code {proc.returncode}: {error_msg}")
 
         # Read the results from the temporary markdown file
-        with open(tmp_md_path, "r", encoding="utf-8") as f:
-            result = f.read()
+        with aiofiles.open(tmp_md_path, "r", encoding="utf-8") as f:
+            result = await f.read()
 
         return result
 

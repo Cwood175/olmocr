@@ -15,13 +15,13 @@ def extract_urls_from_jsonl(file_path):
         for line in f:
             try:
                 data = json.loads(line.strip())
-                if "url" in data and data["url"]:
+                if data.get("url"):
                     url = data["url"]
                     urls.add(url)
                     # Store minimal context for each URL
                     url_to_data[url] = {"id": data.get("id", ""), "type": data.get("type", ""), "page": data.get("page", "")}
-            except json.JSONDecodeError:
-                print(f"Warning: Could not parse JSON from line in {file_path}")
+            except json.JSONDecodeError as e:
+                print(f"Warning: Could not parse JSON from line in {file_path}: {e}")
                 continue
     return urls, url_to_data
 

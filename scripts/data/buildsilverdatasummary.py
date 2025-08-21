@@ -68,8 +68,8 @@ def get_uri_from_db(db_path: str, pdf_hash: str) -> Optional[str]:
     return result[0] if result else None
 
 
-def process_file(filepath, db_path):
-    results = []
+def process_file(filepath: str, db_path: str) -> list[tuple[str, Optional[str], Optional[str]]]:
+    results: list[tuple[str, Optional[str], Optional[str]]] = []
     with open(filepath, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -100,7 +100,7 @@ def process_file(filepath, db_path):
     return results
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Review silver dataset and provide summary statistics based on source URL and also provide a few data samples for review."
     )
@@ -133,7 +133,7 @@ def main():
 
     db_path = cache_athena_csv_to_db(args.athena_csv)
 
-    all_rows = []
+    all_rows: list[tuple[str, Optional[str], Optional[str]]] = []
     filepaths = [os.path.join(args.input, filename) for filename in os.listdir(args.input) if filename.endswith(".jsonl")]
 
     with ProcessPoolExecutor() as executor:

@@ -6,7 +6,10 @@ import json
 import random
 import time
 from io import BytesIO
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
 import torch
 import uvloop
@@ -185,7 +188,7 @@ def sample_mm_requests_molmo(
         raw_b64 = data["chat_messages"][0]["content"][1]["image_url"]["url"]
         main_image = Image.open(BytesIO(base64.b64decode(raw_b64[raw_b64.find(",") + 1 :])))
 
-        inputs = inputs = processor.process(images=[main_image], text=data["chat_messages"][0]["content"][0]["text"])
+        inputs = processor.process(images=[main_image], text=data["chat_messages"][0]["content"][0]["text"])
 
         # print(inputs)
 
@@ -248,9 +251,6 @@ def run_vllm(
         seed=seed,
         trust_remote_code=trust_remote_code,
         dtype=dtype,
-        # speculative_model="[ngram]",
-        # num_speculative_tokens=1,
-        # ngram_prompt_lookup_max=5,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
         enforce_eager=enforce_eager,
@@ -378,14 +378,14 @@ async def run_vllm_async(
             )
 
         generators = []
-        start = time.perf_counter()
+        start = asyncio.get_event_loop().time()
         for i, (prompt, sp) in enumerate(zip(prompts, sampling_params)):
             generator = llm.generate(prompt, sp, request_id=f"test{i}")
             generators.append(generator)
         all_gens = merge_async_iterators(*generators)
         async for i, res in all_gens:
             pass
-        end = time.perf_counter()
+        end = asyncio.get_event_loop().time()
         return end - start
 
 
@@ -397,11 +397,11 @@ def run_hf(
     max_batch_size: int,
     trust_remote_code: bool,
 ) -> float:
-    llm = AutoModelForCausalLM.from_pretrained(model, torch_dtype=torch.float16, trust_remote_code=trust_remote_code)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    llm = AutoModelForCausalLM.from_pretrained(model, torch_dtype=torch.float16, trust_remote_code=trust_remote_code).to(device)
     if llm.config.model_type == "llama":
         # To enable padding in the HF backend.
         tokenizer.pad_token = tokenizer.eos_token
-    llm = llm.cuda()
 
     pbar = tqdm(total=len(requests))
     start = time.perf_counter()
@@ -422,9 +422,9 @@ def run_hf(
                 continue
 
         # Generate the sequences.
-        input_ids = tokenizer(batch, return_tensors="pt", padding=True).input_ids
+        input_ids = tokenizer(batch, return_tensors="pt", padding=True).input_ids.to(device)
         llm_outputs = llm.generate(
-            input_ids=input_ids.cuda(),
+            input_ids=input_ids,
             do_sample=True,
             num_return_sequences=n,
             temperature=1.0,

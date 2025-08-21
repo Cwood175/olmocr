@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import base64
@@ -6,6 +8,7 @@ import importlib
 import os
 import tempfile
 from functools import partial
+from typing import Any, Callable
 
 from pypdf import PdfReader
 from tqdm import tqdm
@@ -14,7 +17,7 @@ from olmocr.data.renderpdf import render_pdf_to_base64png
 from olmocr.image_utils import convert_image_to_pdf_bytes
 
 
-def parse_method_arg(method_arg):
+def parse_method_arg(method_arg: str) -> tuple[str, dict[str, Any], str]:
     """
     Parse a method configuration string of the form:
        method_name[:key=value[:key2=value2...]]
@@ -23,7 +26,7 @@ def parse_method_arg(method_arg):
     """
     parts = method_arg.split(":")
     name = parts[0]
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     folder_name = name  # Default folder name is the method name
 
     for extra in parts[1:]:
@@ -48,13 +51,19 @@ def parse_method_arg(method_arg):
 
 
 # Wrapper to run synchronous functions in the event loop
-async def run_sync_in_executor(func, *args, **kwargs):
+async def run_sync_in_executor(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Run a synchronous function in the default executor"""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
-async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async):
+async def process_pdf(
+    pdf_path: str,
+    page_num: int,
+    method: Callable[..., Any],
+    kwargs: dict[str, Any],
+    output_path: str,
+    is_async: bool,
+) -> bool:
     """Process a single PDF and save the result to output_path"""
     try:
         if is_async:
@@ -84,7 +93,15 @@ async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async)
         return False
 
 
-async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_text, force, max_parallel=None):
+async def process_pdfs(
+    config: dict[str, Any],
+    pdf_directory: str,
+    data_directory: str,
+    repeats: int,
+    remove_text: bool,
+    force: bool,
+    max_parallel: int | None = None,
+) -> None:
     """
     Process PDFs using asyncio for both sync and async methods,
     limiting the number of concurrent tasks to max_parallel.

@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import base64
 import io
 import subprocess
-from typing import List
 
 from PIL import Image
 
@@ -18,11 +19,17 @@ def get_pdf_media_box_width_height(local_pdf_path: str, page_num: int) -> tuple[
     command = ["pdfinfo", "-f", str(page_num), "-l", str(page_num), "-box", "-enc", "UTF-8", local_pdf_path]
 
     # Run the command using subprocess
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        check=False,
+    )
 
     # Check if there is any error in executing the command
     if result.returncode != 0:
-        raise ValueError(f"Error running pdfinfo: {result.stderr}")
+        raise ValueError(f"Error running pdfinfo: {result.stderr.decode()}")
 
     # Parse the output to find MediaBox
     output = result.stdout
@@ -56,7 +63,8 @@ def render_pdf_to_base64png(local_pdf_path: str, page_num: int, target_longest_i
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    assert pdftoppm_result.returncode == 0, pdftoppm_result.stderr
+    if pdftoppm_result.returncode != 0:
+        raise ValueError(f"Error running pdftoppm: {pdftoppm_result.stderr.decode()}")
     return base64.b64encode(pdftoppm_result.stdout).decode("utf-8")
 
 

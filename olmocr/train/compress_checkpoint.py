@@ -26,7 +26,7 @@ import shutil
 import tempfile
 from io import BytesIO
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, Callable, Sequence, TypeAlias
 
 import boto3
 import torch
@@ -46,7 +46,7 @@ from olmocr.s3_utils import parse_s3_path
 s3_client = boto3.client("s3")
 
 
-def get_calibration_pdfs(num_samples: int, pdf_paths: List[str]) -> List[str]:
+def get_calibration_pdfs(num_samples: int, pdf_paths: Sequence[str]) -> list[str]:
     """Get calibration PDFs from provided paths.
 
     Args:
@@ -78,7 +78,7 @@ def get_calibration_pdfs(num_samples: int, pdf_paths: List[str]) -> List[str]:
     return valid_paths
 
 
-async def prepare_calibration_dataset(pdf_paths: List[str], processor) -> Dataset:
+async def prepare_calibration_dataset(pdf_paths: Sequence[str], processor) -> Dataset:
     """Prepare calibration dataset from PDFs using build_page_query."""
     dataset_items = []
 
@@ -190,7 +190,7 @@ def upload_local_to_s3(local_dir: str, bucket: str, prefix: str) -> None:
 
 def load_model_and_tokenizer(
     source_path: str,
-) -> Tuple[Union[Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration], AutoTokenizer, Optional[str]]:
+) -> tuple[Qwen2VLForConditionalGeneration | Qwen2_5_VLForConditionalGeneration, AutoTokenizer, str | None]:
     """Load model and tokenizer from source path (local or S3)."""
     if is_s3_path(source_path):
         # Download from S3 to temporary directory

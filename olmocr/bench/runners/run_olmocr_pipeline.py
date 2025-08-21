@@ -13,6 +13,10 @@ from olmocr.pipeline import (
     sglang_server_ready,
 )
 
+# Module-level globals for metrics and worker tracking
+metrics: Optional[MetricsKeeper] = None
+tracker: Optional[WorkerTracker] = None
+
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("olmocr_runner")
@@ -80,7 +84,7 @@ async def run_olmocr_pipeline(pdf_path: str, page_num: int = 1, model: str = "al
 
     except Exception as e:
         logger.error(f"Error processing page: {type(e).__name__} - {str(e)}")
-        return None
+        raise
 
     finally:
         # We leave the server running for potential reuse

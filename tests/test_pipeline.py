@@ -192,6 +192,7 @@ class MockArgs:
     max_page_retries: int = 8
     target_longest_image_dim: int = 1288
     guided_decoding: bool = False
+    server: str = "http://localhost:8000"
 
 
 class TestRotationCorrection:
@@ -279,8 +280,8 @@ This is the corrected text from the document."""
         # Verify the result
         assert isinstance(result, PageResult)
         assert result.page_num == 1
-        assert result.is_fallback == False
-        assert result.response.is_rotation_valid == True
+        assert result.is_fallback is False
+        assert result.response.is_rotation_valid is True
         assert result.response.rotation_correction == 0
         assert result.response.natural_text is not None
         assert "SECURITIES AND EXCHANGE COMMISSION" in result.response.natural_text
@@ -387,8 +388,8 @@ Document is now correctly oriented after 180 degree rotation."""
         # Verify the result
         assert isinstance(result, PageResult)
         assert result.page_num == 1
-        assert result.is_fallback == False
-        assert result.response.is_rotation_valid == True
+        assert result.is_fallback is False
+        assert result.response.is_rotation_valid is True
         assert result.response.rotation_correction == 0
         assert result.response.natural_text is not None
         assert "180 degree rotation" in result.response.natural_text
@@ -493,8 +494,8 @@ Document correctly oriented at 90 degrees total rotation."""
         # Verify the result
         assert isinstance(result, PageResult)
         assert result.page_num == 1
-        assert result.is_fallback == False
-        assert result.response.is_rotation_valid == True
+        assert result.is_fallback is False
+        assert result.response.is_rotation_valid is True
 
         # Verify that exactly 3 API calls were made
         assert call_count == 3

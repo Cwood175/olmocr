@@ -16,7 +16,6 @@ import glob
 import os
 import re
 import shutil
-from typing import Dict, List
 
 from rapidfuzz import distance as fuzz_distance
 from tqdm import tqdm

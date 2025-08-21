@@ -33,8 +33,6 @@ def jsonl_to_markdown(input_file, output_dir):
                 print(f"Extracted and saved line {i + 1} to {output_file}")
             except json.JSONDecodeError as e:
                 print(f"Error decoding JSON on line {i + 1}: {e}")
-            except Exception as e:
-                print(f"Unexpected error on line {i + 1}: {e}")
 
 
 # Example usage

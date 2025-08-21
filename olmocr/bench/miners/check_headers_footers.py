@@ -1,7 +1,7 @@
 import argparse
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 from openai import OpenAI
 
@@ -15,7 +15,7 @@ def verify_header_footer_match(
     model: str,
     temperature: float = 0.1,
     target_longest_image_dim: int = 2048,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify if a headers and footers matches what appears in a PDF page.
 

@@ -17,7 +17,7 @@ Usage:
 import argparse
 import os
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import boto3
 import numpy as np
@@ -57,7 +57,7 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
+    except (boto3.exceptions.Boto3Error, OSError) as e:
         print(f"Error downloading {s3_path}: {str(e)}")
         return False
 
@@ -95,7 +95,7 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except (KeyError, OSError, pypdf.errors.PdfReadError) as e:
         print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
         raise
 
@@ -121,7 +121,7 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
     # Render the PDF page as an image (render_pdf_to_base64png is 1-indexed)
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"Error rendering PDF page: {str(e)}")
         return None
 
@@ -134,7 +134,13 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}", "detail": "high"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image_base64}",
+                                "detail": "high",
+                            },
+                        },
                         {
                             "type": "text",
                             "text": (
@@ -181,7 +187,7 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
         # Return both the parsed tables and the rendered image (base64 string)
         return (parsed_tables, image_base64) if parsed_tables else None
 
-    except Exception as e:
+    except (ValueError, OSError) as e:
         print(f"Error detecting tables in {pdf_path} page {page_num}: {str(e)}")
         return None
 
@@ -270,7 +276,13 @@ def generate_table_tests(tables: List[np.ndarray], pdf_image: str, api_key: str,
                         {
                             "role": "user",
                             "content": [
-                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{pdf_image}", "detail": "high"}},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{pdf_image}",
+                                        "detail": "high",
+                                    },
+                                },
                                 {"type": "text", "text": prompt},
                             ],
                         }
@@ -286,7 +298,7 @@ def generate_table_tests(tables: List[np.ndarray], pdf_image: str, api_key: str,
                     test_data = {"cell": cell_value, relationship: answer_text}
                     tests.append(test_data)
                     tests_for_this_table += 1
-            except Exception as e:
+            except (ValueError, OSError) as e:
                 print(f"Error querying GPT-4o for cell '{cell_value}' and relationship '{relationship}': {str(e)}")
 
     return tests
@@ -371,7 +383,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, test
             print(f"Processed {pdf_filename} page {page_num+1}, found {len(tables)} tables, created {len(table_tests_data)} tests")
             return  # Process only one page per PDF
 
-    except Exception as e:
+    except (KeyError, OSError, pypdf.errors.PdfReadError) as e:
         print(f"Error processing {pdf_filename}: {str(e)}")
     finally:
         if os.path.exists(local_pdf_path):
@@ -404,12 +416,12 @@ def main():
     for s3_path in tqdm(s3_paths, desc="Processing PDFs"):
         process_pdf(s3_path, args.temp_dir, args.output_dir, api_key, tests)
 
-        if tests:
-            save_tests(tests, os.path.join(args.output_dir, "table_tests.jsonl"))
-
         if len(tests) >= args.max_tests:
             print(f"Reached maximum number of tests ({args.max_tests}), stopping")
             break
+
+    if tests:
+        save_tests(tests, os.path.join(args.output_dir, "table_tests.jsonl"))
 
     print(f"Saved {len(tests)} table tests to {os.path.join(args.output_dir, 'table_tests.jsonl')}")
 

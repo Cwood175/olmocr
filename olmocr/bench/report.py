@@ -1,6 +1,7 @@
 import glob
 import os
-from typing import Dict, List, Tuple
+from collections.abc import Dict, List
+from typing import Tuple
 
 from tqdm import tqdm
 
@@ -192,7 +193,7 @@ def generate_html_report(
                         image_data = render_pdf_to_base64webp(pdf_path, page, 1024)
                         html += f"""        <img class="pdf-image" alt="PDF Page {page}" src="data:image/webp;base64,{image_data}" />\n"""
                     except Exception as e:
-                        html += f"""        <p>Error rendering PDF: {str(e)}</p>\n"""
+                        html += f"""        <p>Error rendering PDF: {e}</p>\n"""
 
                     # Get the Markdown content for this page
                     md_content = None
@@ -204,7 +205,7 @@ def generate_html_report(
                             with open(md_file_path, "r", encoding="utf-8") as f:
                                 md_content = f.read()
                     except Exception as e:
-                        md_content = f"Error loading Markdown content: {str(e)}"
+                        md_content = f"Error loading Markdown content: {e}"
 
                     if md_content:
                         html += """        <h4>Markdown Content:</h4>\n"""

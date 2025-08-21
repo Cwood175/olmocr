@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2024, Allen AI. All rights reserved.
 import argparse
 import json
 import os
@@ -82,6 +83,7 @@ def extract_single_page_pdfs(source_pdf_dir, target_pdf_dir, pdf_page_tests):
 
         except Exception as e:
             print(f"Error processing {pdf_name} page {page_num}: {str(e)}")
+            raise
 
     return processed_pairs
 

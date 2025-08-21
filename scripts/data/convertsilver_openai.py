@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -13,7 +12,12 @@ from cached_path import cached_path
 
 def setup_logging():
     """Configure logging for the script."""
-    logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s", handlers=[logging.StreamHandler(sys.stdout)])
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 def is_s3_path(path):
@@ -29,6 +33,7 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
         input_file (str): Path or URL to the input JSONL file.
         output_file (str): Path or URL to the output JSONL file.
     """
+    logger = logging.getLogger(__name__)
     processed_count = 0
     error_count = 0
 
@@ -41,7 +46,7 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
                 try:
                     obj = json.loads(line)
                 except json.JSONDecodeError as e:
-                    logging.error(f"JSON decode error in file {input_file} at line {line_number}: {e}")
+                    logger.error(f"JSON decode error in file {input_file} at line {line_number}: {e}")
                     error_count += 1
                     continue
 
@@ -74,10 +79,10 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
                 else:
                     error_count += 1
 
-        logging.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
+        logger.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
     except Exception as e:
-        logging.exception(e)
-        logging.error(f"Failed to process file {input_file}: {e}")
+        logger.exception(e)
+        logger.error(f"Failed to process file {input_file}: {e}")
 
 
 def construct_output_file_path(input_file_path, input_dir, output_dir):

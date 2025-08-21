@@ -22,8 +22,8 @@ import logging
 import os
 import random
 import re
+from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
 
 import numba
 import numpy as np
@@ -51,7 +51,17 @@ logging.basicConfig(
 def normalize_text(text: str) -> str:
     """Normalize text for better matching."""
     text = re.sub(r"\s+", " ", text)
-    replacements = {"'": "'", "‚": "'", '"': '"', "„": '"', "＿": "_", "–": "-", "—": "-", "‑": "-", "‒": "-"}
+    replacements = {
+        "'": "'",
+        "‚": "'",
+        '"': '"',
+        "„": '"',
+        "＿": "_",
+        "–": "-",
+        "—": "-",
+        "‑": "-",
+        "‒": "-",
+    }
     for fancy_char, ascii_char in replacements.items():
         text = text.replace(fancy_char, ascii_char)
     return text
@@ -66,7 +76,7 @@ def extract_tex_content(tex_file: str) -> str:
         try:
             with open(tex_file, "r", encoding="latin-1") as f:
                 return f.read()
-        except Exception as e:
+        except OSError as e:
             logging.error("Error reading %s: %s", tex_file, e)
             return ""
 
@@ -76,12 +86,12 @@ def extract_candidate_content(candidate_file: str) -> str:
     try:
         with open(candidate_file, "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
+    except OSError as e:
         logging.error("Error reading %s: %s", candidate_file, e)
         return ""
 
 
-def extract_math_from_tex(tex_content: str) -> List[Tuple[str, str]]:
+def extract_math_from_tex(tex_content: str) -> Iterator[tuple[str, str]]:
     """
     Extract math equations from TeX content.
     Returns list of tuples (equation_type, equation_content)
@@ -127,8 +137,10 @@ def compute_dp(candidate_arr, text_arr):
         for j in range(1, n + 1):
             cost = 0 if candidate_arr[i - 1] == text_arr[j - 1] else 1
             dp[i, j] = min(
-                dp[i - 1, j - 1] + cost, dp[i - 1, j] + 1, dp[i, j - 1] + 1  # substitution or match  # deletion (from candidate)
-            )  # insertion (in candidate)
+                dp[i - 1, j - 1] + cost,
+                dp[i - 1, j] + 1,  # deletion (from candidate)
+                dp[i, j - 1] + 1,  # insertion (in candidate)
+            )  # substitution or match
     return dp
 
 
@@ -159,7 +171,7 @@ def backtrack(dp, candidate_arr, text_arr, m, best_end):
     return j  # start index in text
 
 
-def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: float) -> Optional[str]:
+def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: float) -> str | None:
     """
     Find the substring of tex_content that most closely matches candidate_text using
     dynamic programming accelerated by numba. Returns the matching substring if its
@@ -193,7 +205,7 @@ def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: 
     return tex_norm[start_index:best_end]
 
 
-def parse_candidate_filename(filename: str) -> Optional[Tuple[str, int]]:
+def parse_candidate_filename(filename: str) -> tuple[str, int] | None:
     """
     Parse candidate filename in the format: [tex file basename]_pg[pagenum]_repeat1.md
     Returns tuple (tex_basename, page_num) or None if the format doesn't match.

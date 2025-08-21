@@ -4,7 +4,6 @@ import os
 import random
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -16,32 +15,28 @@ from tqdm import tqdm
 from olmocr.data.renderpdf import render_pdf_to_base64png
 from olmocr.s3_utils import get_s3_bytes, parse_s3_path
 
-LanguageCode = Enum(
-    "LanguageCode",
-    {
-        "en": "English",
-        "zh": "Chinese",
-        "hi": "Hindi",
-        "es": "Spanish",
-        "fr": "French",
-        "ar": "Arabic",
-        "bn": "Bengali",
-        "ru": "Russian",
-        "pt": "Portuguese",
-        "ur": "Urdu",
-        "id": "Indonesian",
-        "de": "German",
-        "ja": "Japanese",
-        "sw": "Swahili",
-        "mr": "Marathi",
-        "te": "Telugu",
-        "tr": "Turkish",
-        "vi": "Vietnamese",
-        "ta": "Tamil",
-        "ko": "Korean",
-        "other": "Other",
-    },
-)
+class LanguageCode(str, Enum):
+    English = "en"
+    Chinese = "zh"
+    Hindi = "hi"
+    Spanish = "es"
+    French = "fr"
+    Arabic = "ar"
+    Bengali = "bn"
+    Russian = "ru"
+    Portuguese = "pt"
+    Urdu = "ur"
+    Indonesian = "id"
+    German = "de"
+    Japanese = "ja"
+    Swahili = "sw"
+    Marathi = "mr"
+    Telugu = "te"
+    Turkish = "tr"
+    Vietnamese = "vi"
+    Tamil = "ta"
+    Korean = "ko"
+    Other = "other"
 
 
 class PIIAnnotation(pydantic.BaseModel):
@@ -94,9 +89,9 @@ class PIIAnnotation(pydantic.BaseModel):
         ]
         return any(pii_fields) or bool(self.other_pii.strip())
 
-    def get_pii_types(self) -> List[str]:
+    def get_pii_types(self) -> list[str]:
         """Get a list of all PII types found in the document"""
-        pii_types = []
+        pii_types: list[str] = []
 
         if self.contains_names:
             pii_types.append("names")
@@ -130,7 +125,7 @@ class PIIAnnotation(pydantic.BaseModel):
         return pii_types
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Automatically scan OLMO OCR workspace results using ChatGPT")
     parser.add_argument("workspace", help="OLMO OCR workspace path (s3://bucket/workspace)")
     parser.add_argument("--pages_per_run", type=int, default=30, help="Number of pages per run")
@@ -220,7 +215,7 @@ def get_random_pages(s3_client, result_files, count=30):
                 if len(random_pages) >= count:
                     break
 
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, IndexError, UnicodeDecodeError) as e:
             print(f"Error processing {result_file}: {e}")
             continue
 
@@ -248,40 +243,35 @@ def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api
         client = OpenAI(api_key=openai_api_key)
 
         # Prepare the user message with all instructions
-        user_message = """
-You are a document analyzer that identifies Personally Identifiable Information (PII) in documents. 
-Your task is to analyze the provided document image and determine:
-1. Whether the document is intended for public release or dissemination (e.g., research paper, public report, etc.)
-2. If the document contains any PII
-
-For PII identification, follow these specific guidelines:
-
-IDENTIFIERS FOR PII:
-The following are considered identifiers that can make information PII:
-- Names (full names, first names, last names, nicknames)
-- Email addresses
-- Phone numbers
-
-PII THAT MUST CO-OCCUR WITH AN IDENTIFIER:
-The following types of information should ONLY be marked as PII if they occur ALONGSIDE an identifier (commonly, a person's name):
-- Addresses (street address, postal code, etc.)
-- Biographical Information (date of birth, place of birth, gender, sexual orientation, race, ethnicity, citizenship/immigration status, religion)
-- Location Information (geolocations, specific coordinates)
-- Employment Information (job titles, workplace names, employment history)
-- Education Information (school names, degrees, transcripts)
-- Medical Information (health records, diagnoses, genetic or neural data)
-
-PII THAT OCCURS EVEN WITHOUT AN IDENTIFIER:
-The following should ALWAYS be marked as PII even if they do not occur alongside an identifier:
-- Government IDs (Social Security Numbers, passport numbers, driver's license numbers, tax IDs)
-- Financial Information (credit card numbers, bank account/routing numbers)
-- Biometric Data (fingerprints, retina scans, facial recognition data, voice signatures)
-- Login information (ONLY mark as PII when a username, password, and login location are present together)
-
-If the document is a form, then only consider fields which are filled out with specific values as potential PII.
-If this page does not itself contain PII, but references documents (such as curriculum vitae, personal statements) that typically contain PII, then do not mark it as PII.
-Only consider actual occurrences of the PII within the document shown.
-"""
+        user_message = (
+            "You are a document analyzer that identifies Personally Identifiable Information (PII) in documents. "
+            "Your task is to analyze the provided document image and determine: "
+            "1. Whether the document is intended for public release or dissemination (e.g., research paper, public report, etc.) "
+            "2. If the document contains any PII\n\n"
+            "For PII identification, follow these specific guidelines:\n\n"
+            "IDENTIFIERS FOR PII:\n"
+            "The following are considered identifiers that can make information PII:\n"
+            "- Names (full names, first names, last names, nicknames)\n"
+            "- Email addresses\n"
+            "- Phone numbers\n\n"
+            "PII THAT MUST CO-OCCUR WITH AN IDENTIFIER:\n"
+            "The following types of information should ONLY be marked as PII if they occur ALONGSIDE an identifier (commonly, a person's name):\n"
+            "- Addresses (street address, postal code, etc.)\n"
+            "- Biographical Information (date of birth, place of birth, gender, sexual orientation, race, ethnicity, citizenship/immigration status, religion)\n"
+            "- Location Information (geolocations, specific coordinates)\n"
+            "- Employment Information (job titles, workplace names, employment history)\n"
+            "- Education Information (school names, degrees, transcripts)\n"
+            "- Medical Information (health records, diagnoses, genetic or neural data)\n\n"
+            "PII THAT OCCURS EVEN WITHOUT AN IDENTIFIER:\n"
+            "The following should ALWAYS be marked as PII even if they do not occur alongside an identifier:\n"
+            "- Government IDs (Social Security Numbers, passport numbers, driver's license numbers, tax IDs)\n"
+            "- Financial Information (credit card numbers, bank account/routing numbers)\n"
+            "- Biometric Data (fingerprints, retina scans, facial recognition data, voice signatures)\n"
+            "- Login information (ONLY mark as PII when a username, password, and login location are present together)\n\n"
+            "If the document is a form, then only consider fields which are filled out with specific values as potential PII.\n"
+            "If this page does not itself contain PII, but references documents (such as curriculum vitae, personal statements) that typically contain PII, then do not mark it as PII.\n"
+            "Only consider actual occurrences of the PII within the document shown."
+        )
 
         # Use the chat completions API with the custom schema
         completion = client.beta.chat.completions.parse(
@@ -298,7 +288,7 @@ Only consider actual occurrences of the PII within the document shown.
 
         return completion.choices[0].message.parsed
 
-    except Exception as e:
+    except (openai.APIError, openai.APIConnectionError, openai.APITimeoutError) as e:
         print(f"Error analyzing page {pdf_path} (page {page_num}): {e}")
         return None
 
@@ -366,7 +356,9 @@ def categorize_results(all_results):
     }
 
     for pdf_path, page_num, page_text, result_file, annotation, presigned_url in all_results:
-        if annotation.cannot_read or annotation.language_code != LanguageCode.en:
+        if annotation is None:
+            categories["no_annotation"].append({"pdf_path": pdf_path, "pdf_page": page_num, "result_file": result_file, "presigned_url": presigned_url})
+        elif annotation.cannot_read or annotation.language_code != LanguageCode.en:
             categories["cannot_read"].append({"pdf_path": pdf_path, "pdf_page": page_num, "result_file": result_file, "presigned_url": presigned_url})
         elif annotation.inappropriate_content:
             categories["report_content"].append({"pdf_path": pdf_path, "pdf_page": page_num, "result_file": result_file, "presigned_url": presigned_url})

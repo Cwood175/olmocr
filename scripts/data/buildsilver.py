@@ -4,7 +4,7 @@ import json
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Generator
+from typing import TYPE_CHECKING, Any, Generator
 from urllib.parse import urlparse
 
 import boto3
@@ -18,6 +18,9 @@ from olmocr.prompts import (
     openai_response_format_schema,
 )
 from olmocr.prompts.anchor import get_anchor_text
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 TARGET_IMAGE_DIM = 2048
 
@@ -104,8 +107,8 @@ def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_fil
         try:
             query = build_page_query(local_pdf_path, pretty_pdf_path, page)
             result.append(query)
-        except Exception as e:
-            print(f"Error processing page {page} of {pdf_path}: {e}")
+        except Exception:
+            print(f"Error processing page {page} of {pdf_path}")
 
     return result
 

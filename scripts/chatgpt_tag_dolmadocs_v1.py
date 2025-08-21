@@ -16,7 +16,10 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from typing import List
 
 import boto3
 import pydantic
@@ -227,7 +230,7 @@ def load_document_file(s3_client, file_path):
 
         # Return the decoded lines
         return file_bytes.decode("utf-8").strip().split("\n")
-    except Exception as e:
+    except (OSError, gzip.BadGzipFile, zstandard.ZstdError) as e:
         logger.error(f"Error loading file {file_path}: {e}")
         return []
 
@@ -253,27 +256,26 @@ def get_document_info_from_line(line, file_path, line_index):
             return None
 
         # Just use the first page for each document
-        if page_spans:
-            page_span = page_spans[0]  # Just get the first page
-            if len(page_span) >= 3:
-                # Page spans are [start_pos, end_pos, page_num]
-                page_num = page_span[2]
+        page_span = page_spans[0]  # Just get the first page
+        if len(page_span) >= 3:
+            # Page spans are [start_pos, end_pos, page_num]
+            page_num = page_span[2]
 
-                # Extract text for this page
-                start_pos, end_pos = page_span[0], page_span[1]
-                page_text = doc["text"][start_pos:end_pos].strip()
+            # Extract text for this page
+            start_pos, end_pos = page_span[0], page_span[1]
+            page_text = doc["text"][start_pos:end_pos].strip()
 
-                # Return the information
-                return {
-                    "pdf_path": pdf_path,
-                    "page_num": page_num,
-                    "page_text": page_text,
-                    "start_pos": start_pos,
-                    "end_pos": end_pos,
-                    "doc_id": doc["id"],
-                    "source_file": file_path,
-                    "line_index": line_index,
-                }
+            # Return the information
+            return {
+                "pdf_path": pdf_path,
+                "page_num": page_num,
+                "page_text": page_text,
+                "start_pos": start_pos,
+                "end_pos": end_pos,
+                "doc_id": doc["id"],
+                "source_file": file_path,
+                "line_index": line_index,
+            }
 
         return None
     except json.JSONDecodeError:
@@ -380,7 +382,7 @@ Only consider actual occurrences of the PII within the document shown.
 
         return completion.choices[0].message.parsed
 
-    except Exception as e:
+    except (OpenAI.APIError, httpx.HTTPStatusError, RuntimeError) as e:
         logger.error(f"Error analyzing page {pdf_path} (page {page_num}): {e}")
         return None
 
@@ -414,7 +416,11 @@ def process_single_page(args, doc_info, pdf_s3_client=None):
         raise ValueError("OpenAI API key must be provided via --openai_api_key or OPENAI_API_KEY environment variable")
 
     # Analyze page with ChatGPT
-    annotation = chatgpt_analyze_page(pdf_path, page_num, pdf_s3_client, openai_api_key, args.openai_model)
+    try:
+        annotation = chatgpt_analyze_page(pdf_path, page_num, pdf_s3_client, openai_api_key, args.openai_model)
+    except (boto3.exceptions.Boto3Error, OpenAI.APIError, ValueError) as e:
+        logger.error(f"Error analyzing page {pdf_path} (page {page_num}): {e}")
+        return None
 
     if not annotation:
         logger.warning(f"No annotation for {pdf_path} page {page_num}")
@@ -532,7 +538,7 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
                     fh.write(payload)
                 logger.info(f"Wrote {len(file_entries)} attribute entries to {out_path}")
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Error writing attributes for {source_file}: {e}")
             continue
 
@@ -549,7 +555,12 @@ def save_results(results, output_dir):
         serializable_results.append(result)
 
     with open(output_path, "w") as f:
-        json.dump(serializable_results, f, indent=2, default=lambda o: o.value if isinstance(o, Enum) else o)
+        json.dump(
+            serializable_results,
+            f,
+            indent=2,
+            default=lambda o: o.value if isinstance(o, Enum) else o,
+        )
 
     print(f"Results saved to {output_path}")
 

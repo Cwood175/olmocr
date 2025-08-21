@@ -764,7 +764,10 @@ def tokenize_expression(expression):
         elif i + 2 < len(expression) and expression[i : i + 3].lower() == "and":
             # Check if it's a standalone 'and' and not part of a word
             if (i == 0 or expression[i - 1].isspace() or expression[i - 1] in "()") and (
-                i + 3 >= len(expression) or expression[i + 3].isspace() or expression[i + 3] in "()"
+                i + 3 >= len(expression)
+                or expression[i + 3].isspace()
+                or expression[i + 3] in "()"
+                or expression[i + 3] == ":"
             ):
                 tokens.append(Token(TokenType.AND))
                 i += 3
@@ -796,7 +799,10 @@ def tokenize_expression(expression):
         elif i + 1 < len(expression) and expression[i : i + 2].lower() == "or":
             # Check if it's a standalone 'or' and not part of a word
             if (i == 0 or expression[i - 1].isspace() or expression[i - 1] in "()") and (
-                i + 2 >= len(expression) or expression[i + 2].isspace() or expression[i + 2] in "()"
+                i + 2 >= len(expression)
+                or expression[i + 2].isspace()
+                or expression[i + 2] in "()"
+                or expression[i + 2] == ":"
             ):
                 tokens.append(Token(TokenType.OR))
                 i += 2
@@ -828,7 +834,10 @@ def tokenize_expression(expression):
         elif i + 2 < len(expression) and expression[i : i + 3].lower() == "not":
             # Check if it's a standalone 'not' and not part of a word
             if (i == 0 or expression[i - 1].isspace() or expression[i - 1] in "()") and (
-                i + 3 >= len(expression) or expression[i + 3].isspace() or expression[i + 3] in "()"
+                i + 3 >= len(expression)
+                or expression[i + 3].isspace()
+                or expression[i + 3] in "()"
+                or expression[i + 3] == ":"
             ):
                 tokens.append(Token(TokenType.NOT))
                 i += 3
@@ -960,18 +969,18 @@ class Parser:
 
     def match(self, *types):
         """Check if the current token matches any of the given types."""
-        for type in types:
-            if self.check(type):
+        for token_type in types:
+            if self.check(token_type):
                 self.advance()
                 return True
 
         return False
 
-    def check(self, type):
+    def check(self, token_type):
         """Check if the current token is of the given type without advancing."""
         if self.is_at_end():
             return False
-        return self.peek().type == type
+        return self.peek().type == token_type
 
     def advance(self):
         """Advance to the next token and return the previous one."""
@@ -979,19 +988,23 @@ class Parser:
             self.current += 1
         return self.previous()
 
-    def consume(self, type, message):
+    def consume(self, token_type, message):
         """Consume the current token if it matches the expected type."""
-        if self.check(type):
+        if self.check(token_type):
             return self.advance()
 
         raise ValueError(f"{message} at position {self.current}")
 
     def is_at_end(self):
         """Check if we've reached the end of the tokens."""
+        if not self.tokens:
+            return True
         return self.peek().type == TokenType.EOF
 
     def peek(self):
         """Return the current token without advancing."""
+        if not self.tokens:
+            raise IndexError("Token list is empty")
         return self.tokens[self.current]
 
     def previous(self):
@@ -1267,13 +1280,13 @@ def format_rule_stats(rule_stats):
 
         # Extract rule name and stat type
         if "_total_entries" in key:
-            rule_name = key.replace("_total_entries", "")
+            rule_name, _, stat = key.rpartition("_")
             grouped_stats[rule_name]["total_entries"] = value
         elif "_positive_entries" in key:
-            rule_name = key.replace("_positive_entries", "")
+            rule_name, _, stat = key.rpartition("_")
             grouped_stats[rule_name]["positive_entries"] = value
         elif "_matched_docs" in key:
-            rule_name = key.replace("_matched_docs", "")
+            rule_name, _, stat = key.rpartition("_")
             grouped_stats[rule_name]["matched_docs"] = value
 
     # Format the grouped statistics as a list of strings
@@ -1509,7 +1522,7 @@ def generate_html_report(docs, title, summary, output_path):
         
         .title {{
             font-size: 1.2em;
-            font-weight: bold;s
+            font-weight: bold;
             color: #333;
             white-space: nowrap;
             overflow: hidden;
@@ -1626,7 +1639,7 @@ def generate_html_report(docs, title, summary, output_path):
 <body>
     <!-- Fixed header -->
     <div class="header">
-        <div class="title">{title} <span class="stats">({len(docs)} documents)</span></div>
+        <div class="title">{title} <span class="stats">({num_docs} documents)</span></div>
         <div class="controls">
             <div class="keyboard-controls">
                 <span class="keyboard-shortcut">↑</span>/<span class="keyboard-shortcut">↓</span> to navigate
@@ -1659,7 +1672,7 @@ def generate_html_report(docs, title, summary, output_path):
         html += f"""
             <div id="doc-{i}" class="document{selected_class}" tabindex="0">
                 <div class="document-id">Document ID: {doc_id}</div>
-                <pre class="document-text">{pyhtml.escape(doc_text)}</pre>
+                <pre class="document-text">{html.escape(doc_text)}</pre>
             </div>
 """
 

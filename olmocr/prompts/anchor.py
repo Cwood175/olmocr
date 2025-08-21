@@ -6,7 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from os import PathLike
-from typing import List, Literal
+from typing import Any, Sequence, TypeAlias
 
 import ftfy
 import pypdfium2 as pdfium
@@ -49,14 +49,15 @@ def get_anchor_text(
 
 
 def _get_pdftotext(local_pdf_path: str, page: int) -> str:
-    pdftotext_result = subprocess.run(
+    process = subprocess.Popen(
         ["pdftotext", "-f", str(page), "-l", str(page), local_pdf_path, "-"],
-        timeout=60,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    assert pdftotext_result.returncode == 0
-    return pdftotext_result.stdout.decode("utf-8")
+    stdout, stderr = process.communicate(timeout=60)
+    if process.returncode != 0:
+        raise RuntimeError(f"pdftotext failed: {stderr.decode('utf-8')}")
+    return stdout.decode("utf-8")
 
 
 def _get_pypdf_raw(local_pdf_path: str, page: int) -> str:

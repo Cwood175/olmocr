@@ -2,6 +2,7 @@ import base64
 import os
 import re
 import tempfile
+from typing import Optional
 
 import torch
 from PIL import Image
@@ -9,28 +10,19 @@ from transformers import AutoModelForImageTextToText, AutoProcessor, AutoTokeniz
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
 
-_model = None
-_tokenizer = None
-_processor = None
-_device = None
+def load_model(model_path: str = "nanonets/Nanonets-OCR-s") -> tuple[AutoModelForImageTextToText, AutoTokenizer, AutoProcessor]:
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = AutoModelForImageTextToText.from_pretrained(
+        model_path,
+        torch_dtype="auto",
+        device_map="auto",
+        # attn_implementation="flash_attention_2"
+    )
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    processor = AutoProcessor.from_pretrained(model_path)
 
-
-def load_model(model_path: str = "nanonets/Nanonets-OCR-s"):
-    global _model, _tokenizer, _processor, _device
-
-    if _model is None:
-        _device = "cuda" if torch.cuda.is_available() else "cpu"
-        _model = AutoModelForImageTextToText.from_pretrained(
-            model_path,
-            torch_dtype="auto",
-            device_map="auto",
-            # attn_implementation="flash_attention_2"
-        )
-        _model.eval()
-        _tokenizer = AutoTokenizer.from_pretrained(model_path)
-        _processor = AutoProcessor.from_pretrained(model_path)
-
-    return _model, _tokenizer, _processor
+    return model, tokenizer, processor
 
 
 async def run_nanonetsocr(pdf_path: str, page_num: int = 1, model_path: str = "nanonets/Nanonets-OCR-s", max_new_tokens: int = 4096, **kwargs) -> str:
@@ -51,12 +43,12 @@ async def run_nanonetsocr(pdf_path: str, page_num: int = 1, model_path: str = "n
 
     image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num, target_longest_image_dim=1024)
 
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
-        image_data = base64.b64decode(image_base64)
-        temp_file.write(image_data)
-        temp_image_path = temp_file.name
-
+    image_data = base64.b64decode(image_base64)
+    temp_image_path = tempfile.mktemp(suffix=".png")
     try:
+        with open(temp_image_path, "wb") as temp_file:
+            temp_file.write(image_data)
+
         image = Image.open(temp_image_path)
         prompt = """Extract the text from the above document as if you were reading it naturally. Return the tables in html format. Return the equations in LaTeX representation. If there is an image in the document and image caption is not present, add a small description of the image inside the <img></img> tag; otherwise, add the image caption inside <img></img>. Watermarks should be wrapped in brackets. Ex: <watermark>OFFICIAL COPY</watermark>. Page numbers should be wrapped in brackets. Ex: <page_number>14</page_number> or <page_number>9/22</page_number>. Prefer using ☐ and ☑ for check boxes."""
         messages = [
@@ -83,7 +75,4 @@ async def run_nanonetsocr(pdf_path: str, page_num: int = 1, model_path: str = "n
         return cleaned_text
 
     finally:
-        try:
-            os.unlink(temp_image_path)
-        except Exception as e:
-            print(f"Warning: Failed to remove temporary file {temp_image_path}: {e}")
+        os.unlink(temp_image_path)

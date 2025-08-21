@@ -3,6 +3,7 @@ import argparse
 import json
 import re
 import sqlite3
+import sys
 from typing import Optional
 
 
@@ -24,10 +25,21 @@ def get_uri_from_db(db_path: str, pdf_hash: str) -> Optional[str]:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Rewrites all URLs in a dataset.jsonl file using a sql lite database lookup")
+    parser = argparse.ArgumentParser(
+        description="Rewrites all URLs in a dataset.jsonl file using a sql lite database lookup"
+    )
     parser.add_argument("jsonl", type=str, help="JSONL file containing s3 paths")
-    parser.add_argument("--db", type=str, required=True, help="Path to sqlite database mapping internal s3 urls to external ones")
-    parser.add_argument("--force", action="store_true", help="Path to sqlite database mapping internal s3 urls to external ones")
+    parser.add_argument(
+        "--db",
+        type=str,
+        required=True,
+        help="Path to sqlite database mapping internal s3 urls to external ones",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Path to sqlite database mapping internal s3 urls to external ones",
+    )
     args = parser.parse_args()
 
     data = []
@@ -57,7 +69,7 @@ if __name__ == "__main__":
 
     if not args.force:
         print("Now run with --force to write data")
-        quit()
+        sys.exit()
 
     with open(args.jsonl, "w") as inpf:
         for row in data:

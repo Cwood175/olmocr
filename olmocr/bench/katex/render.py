@@ -20,7 +20,7 @@ import sqlite3
 import threading
 import unittest
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -150,7 +150,7 @@ class RenderedEquation:
     error: Optional[str] = None  # New field to store error messages if rendering fails
 
 
-def get_equation_hash(equation, bg_color="white", text_color="black", font_size=24):
+def get_equation_hash(equation: str, bg_color: str = "white", text_color: str = "black", font_size: int = 24) -> str:
     """
     Calculate SHA1 hash of the equation string and rendering parameters.
     """
@@ -158,7 +158,7 @@ def get_equation_hash(equation, bg_color="white", text_color="black", font_size=
     return hashlib.sha1(params_str.encode("utf-8")).hexdigest()
 
 
-def init_browser():
+def init_browser() -> None:
     """
     Initialize the Playwright and browser instance for the current thread if not already done.
     """
@@ -167,7 +167,7 @@ def init_browser():
         _thread_local.browser = _thread_local.playwright.chromium.launch()
 
 
-def get_browser():
+def get_browser() -> Any:
     """
     Return the browser instance for the current thread.
     """

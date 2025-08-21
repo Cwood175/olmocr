@@ -1,7 +1,7 @@
 import argparse
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 from openai import OpenAI
 
@@ -15,7 +15,7 @@ def verify_latex_match(
     model: str = "gpt-4o-2024-08-06",
     temperature: float = 0.1,
     target_longest_image_dim: int = 2048,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify if a LaTeX math expression matches what appears in a PDF page.
 

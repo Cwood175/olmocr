@@ -4,7 +4,6 @@ import glob
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import List
 from urllib.parse import urlparse
 
 import boto3
@@ -17,7 +16,7 @@ from olmocr.filter import PdfFilter
 pdf_filter = PdfFilter()
 
 
-def sample_pdf_pages(num_pages: int, first_n_pages: int, max_sample_pages: int) -> List[int]:
+def sample_pdf_pages(num_pages: int, first_n_pages: int, max_sample_pages: int) -> list[int]:
     """
     Returns a list of sampled page indices (1-based).
     - Always include the first_n_pages (or all pages if num_pages < first_n_pages).
@@ -59,7 +58,7 @@ def extract_single_page_pdf(input_pdf_path: str, page_number: int, output_pdf_pa
         writer.write(f)
 
 
-def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_filter: bool, output_dir: str):
+def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_filter: bool, output_dir: str) -> bool:
     """
     - Download the PDF locally if it's in S3.
     - Optionally filter the PDF (if no_filter=False).
@@ -108,7 +107,7 @@ def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_fil
     return True
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Sample PDFs, extract single-page PDFs, and render them as PNG.")
     parser.add_argument("--glob_path", type=str, help="Local or S3 path glob (e.g., *.pdf or s3://bucket/pdfs/*.pdf).")
     parser.add_argument("--path_list", type=str, help="Path to a file containing paths to PDFs, one per line.")
@@ -127,7 +126,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Reservoir sample for PDF paths
-    pdf_paths = []
+    pdf_paths: list[str] = []
     n = 0  # total number of items seen
 
     # Either load from glob or from path_list

@@ -18,7 +18,6 @@ import base64
 import json
 import os
 import random
-from typing import List, Optional
 
 import boto3
 import pypdf
@@ -57,7 +56,7 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
+    except boto3.exceptions.Boto3Error as e:
         print(f"Error downloading {s3_path}: {str(e)}")
         return False
 
@@ -74,33 +73,29 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
     Returns:
         bool: True if extraction was successful, False otherwise
     """
-    try:
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        # Read the input PDF
-        reader = pypdf.PdfReader(input_path)
+    # Read the input PDF
+    reader = pypdf.PdfReader(input_path)
 
-        # Check if page number is valid
-        if page_num >= len(reader.pages):
-            print(f"Page number {page_num} out of range for {input_path} with {len(reader.pages)} pages")
-            return False
+    # Check if page number is valid
+    if page_num >= len(reader.pages):
+        print(f"Page number {page_num} out of range for {input_path} with {len(reader.pages)} pages")
+        return False
 
-        # Create a new PDF with just the selected page
-        writer = pypdf.PdfWriter()
-        writer.add_page(reader.pages[page_num])
+    # Create a new PDF with just the selected page
+    writer = pypdf.PdfWriter()
+    writer.add_page(reader.pages[page_num])
 
-        # Write the output PDF
-        with open(output_path, "wb") as output_file:
-            writer.write(output_file)
+    # Write the output PDF
+    with open(output_path, "wb") as output_file:
+        writer.write(output_file)
 
-        return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
-        raise
+    return True
 
 
-def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Optional[List[str]]:
+def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> list[str] | None:
     """
     Use Gemini to detect headers and footers in a rendered PDF page.
 
@@ -110,7 +105,7 @@ def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Option
         api_key: Gemini API key
 
     Returns:
-        Optional[List[str]]: List of detected header/footer texts, or None if detection failed
+        list[str] | None: List of detected header/footer texts, or None if detection failed
     """
     client = genai.Client(
         api_key=os.environ.get("GEMINI_API_KEY"),
@@ -120,7 +115,7 @@ def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Option
     # Render the PDF page as an image
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)  # render_pdf_to_base64png is 1-indexed
-    except Exception as e:
+    except RuntimeError as e:
         print(f"Error rendering PDF page: {str(e)}")
         return None
 
@@ -173,7 +168,7 @@ def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Option
     return data.get("headers", []) + data.get("footers", [])
 
 
-def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, tests: List[TextPresenceTest]) -> None:
+def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, tests: list[TextPresenceTest]) -> None:
     """
     Process a single PDF from S3.
 

@@ -1,8 +1,13 @@
-from typing import Type
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from spacy.lang.en import English
 
 from .registry import BaseRegistry
+
+if TYPE_CHECKING:
+    from typing import Type
 
 
 class SegmenterRegistry(BaseRegistry[Type["BaseSegmenter"]]):
@@ -19,7 +24,7 @@ class BaseSegmenter:
 
 @SegmenterRegistry.add("spacy")
 class SpacySegmenter(BaseSegmenter):
-    def __init__(self, segmenter_name_or_path: str, *args, **kwargs):
+    def __init__(self, segmenter_name_or_path: str, *args: object, **kwargs: object) -> None:
         assert segmenter_name_or_path == "spacy", "Only 'spacy' segmenter is supported"
         self.nlp = English()
         self.nlp.add_pipe("sentencizer")

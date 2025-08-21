@@ -1,5 +1,4 @@
 import bisect
-from typing import Type
 
 import regex as re
 from tqdm import tqdm
@@ -9,7 +8,7 @@ from .registry import BaseRegistry
 from .segmenters import BaseSegmenter, SegmenterRegistry
 
 
-class TextMetricRegistry(BaseRegistry[Type["BaseTextMetric"]]):
+class TextMetricRegistry(BaseRegistry["BaseTextMetric"]):
     """A registry for text metrics."""
 
 

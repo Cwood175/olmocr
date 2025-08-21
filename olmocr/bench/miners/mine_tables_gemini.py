@@ -20,7 +20,7 @@ import concurrent.futures
 import os
 import random
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import boto3
 import numpy as np

@@ -23,7 +23,6 @@ import re
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
 
 import pypdf
 from anthropic import Anthropic
@@ -188,7 +187,12 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
-                page = await browser.new_page(viewport={"width": int(png_width // 2 * scale), "height": int(png_height // 2 * scale)})
+                page = await browser.new_page(
+                    viewport={
+                        "width": int(png_width // 2 * scale),
+                        "height": int(png_height // 2 * scale),
+                    }
+                )
                 await page.set_content(html_content)
 
                 # Add KaTeX assets for math rendering
@@ -294,7 +298,9 @@ def process_pdf(pdf_info, args, client):
         playwright_pdf_path = os.path.join(pdfs_dir, playwright_pdf_filename)
         try:
             png_width, png_height = get_png_dimensions_from_base64(image_base64)
-            render_success = asyncio.run(render_pdf_with_playwright(html_content, playwright_pdf_path, png_width, png_height))
+            render_success = asyncio.run(
+                render_pdf_with_playwright(html_content, playwright_pdf_path, png_width, png_height)
+            )
             if render_success:
                 print(f"Successfully rendered with Playwright: {playwright_pdf_path}")
             else:
@@ -330,11 +336,15 @@ def process_pdf(pdf_info, args, client):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert PDFs in a folder to HTML templates and render with Playwright (order tests only)")
+    parser = argparse.ArgumentParser(
+        description="Convert PDFs in a folder to HTML templates and render with Playwright (order tests only)"
+    )
     parser.add_argument("--input_dir", required=True, help="Folder containing PDF files")
     parser.add_argument("--output_dir", required=True, help="Directory to store HTML and tests")
     parser.add_argument("--temp_dir", default="/tmp/mine_tables", help="Directory for temporary files")
-    parser.add_argument("--max_tests", type=int, default=100, help="Maximum number of PDFs to process (randomly selected)")
+    parser.add_argument(
+        "--max_tests", type=int, default=100, help="Maximum number of PDFs to process (randomly selected)"
+    )
     parser.add_argument("--parallel", type=int, default=1, help="Number of parallel threads to use")
     parser.add_argument("--api_key", help="Claude API key (or set ANTHROPIC_API_KEY environment variable)")
     parser.add_argument("--skip_playwright", action="store_true", help="Skip Playwright PDF rendering")
@@ -373,7 +383,10 @@ def main():
     file_lock = threading.Lock()
 
     with ThreadPoolExecutor(max_workers=args.parallel) as executor:
-        futures = {executor.submit(process_pdf, (pdf_path, i), args, client): pdf_path for i, pdf_path in enumerate(pdf_paths)}
+        futures = {
+            executor.submit(process_pdf, (pdf_path, i), args, client): pdf_path
+            for i, pdf_path in enumerate(pdf_paths)
+        }
         for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Processing PDFs"):
             pdf_path = futures[future]
             try:

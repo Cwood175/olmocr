@@ -16,6 +16,7 @@ def run_mineru(pdf_path: str, page_num: int = 1) -> str:
     image_writer = FileBasedDataWriter(image_output_folder.name)
     md_writer = FileBasedDataWriter(output_folder.name)
 
+    temp_file = None
     if page_num > 0:  # If a specific page is requested
         reader = PdfReader(pdf_path)
 

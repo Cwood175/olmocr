@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import boto3
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read JSONL files from an S3 prefix, extract text, and write to local .md files.")
     parser.add_argument(
         "--s3-prefix",
@@ -18,7 +18,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     # Parse the s3-prefix into bucket and prefix

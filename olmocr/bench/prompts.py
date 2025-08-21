@@ -1,8 +1,10 @@
 def build_basic_prompt() -> str:
+    """Build a basic prompt for converting document pages to Markdown and LaTeX."""
     return "Please provide a natural, plain text representation of the document, formatted in Markdown. Skip any headers and footers. For ALL mathematical expressions, use LaTeX notation with \( and \) for inline equations and \[ and \] for display equations. Convert any tables into Markdown format."
 
 
 def build_openai_silver_data_prompt_no_document_anchoring(_base_text: str) -> str:
+    """Build an OpenAI silver-data prompt without document anchoring."""
     return (
         "Below is the image of one page of a PDF document. "
         "Just return the plain text representation of this document as if you were reading it naturally.\n"
@@ -15,6 +17,7 @@ def build_openai_silver_data_prompt_no_document_anchoring(_base_text: str) -> st
 
 
 def claude_response_format_schema() -> dict:
+    """Return the Claude response format schema for page extraction tasks."""
     return (
         {
             "name": "page_response",

@@ -4,7 +4,7 @@ import tarfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import PathLike
 from pathlib import Path
-from typing import Optional
+from types import Optional
 
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -17,7 +17,7 @@ def extract_tarball(tarball_path: Path, extract_dir: Path) -> int:
         with tarfile.open(tarball_path, "r") as tar:
             tar.extractall(extract_dir)
             return len(tar.getmembers())
-    except Exception as e:
+    except (tarfile.TarError, OSError) as e:
         print(f"Error extracting {tarball_path}: {e}")
         return 0
 
@@ -180,7 +180,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                 total_processed += 1
                 if total_processed % 1000 == 0:
                     print(f"Processed {total_processed} examples...")
-            except Exception as ex:
+            except (AssertionError, KeyError, json.JSONDecodeError, OSError) as ex:
                 print(f"Error processing line: {ex}")
                 total_errors += 1
 

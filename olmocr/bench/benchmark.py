@@ -19,8 +19,9 @@ import os
 import random
 import re
 import sys
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
+from typing import Any, Callable, Iterator, Optional, Sequence, Tuple, Union
 
 from pypdf import PdfReader
 from tqdm import tqdm
@@ -31,7 +32,7 @@ from .utils import calculate_bootstrap_ci
 
 
 def evaluate_candidate(
-    candidate_folder: str, all_tests: List[BasePDFTest], pdf_basenames: List[str], force: bool = False
+    candidate_folder: str, all_tests: Sequence[BasePDFTest], pdf_basenames: Sequence[str], force: bool = False
 ) -> Tuple[float, int, List[str], List[str], Dict[str, List[float]], List[float], Dict[str, Dict[int, List[Tuple[BasePDFTest, bool, str]]]]]:
     """
     For the candidate folder (pipeline tool output), validate that it contains at least one .md file
@@ -52,7 +53,7 @@ def evaluate_candidate(
     """
     candidate_errors = []
     test_failures = []
-    test_type_breakdown = {}  # key: test type, value: list of average pass ratios
+    test_type_breakdown = defaultdict(list)  # key: test type, value: list of average pass ratios
     all_test_scores = []  # Store all individual test scores for bootstrapping
     test_results = {}  # Store detailed test results for reporting
     candidate_name = os.path.basename(candidate_folder)
@@ -108,7 +109,7 @@ def evaluate_candidate(
             try:
                 with open(md_path, "r", encoding="utf-8") as f:
                     md_content = f.read()
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 local_errors.append(f"Error reading {md_path}: {e}")
                 continue
 
@@ -148,8 +149,6 @@ def evaluate_candidate(
             total_test_score += test_avg
             if test_failure:
                 test_failures.append(test_failure)
-            if test_type not in test_type_breakdown:
-                test_type_breakdown[test_type] = []
             test_type_breakdown[test_type].append(test_avg)
             local_errors = errors
             if local_errors:
