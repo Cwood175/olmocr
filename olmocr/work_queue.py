@@ -9,7 +9,8 @@ import os
 import random
 from asyncio import Queue, QueueEmpty
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from pathlib import Path
+from typing import Any
 
 import zstandard
 
@@ -32,51 +33,51 @@ class WorkItem:
     """Represents a single work item in the queue."""
 
     hash: str
-    work_paths: List[str]
+    work_paths: list[str]
 
 
 class Backend(abc.ABC):
     """Abstract backend for storage operations."""
 
     @abc.abstractmethod
-    async def load_index_lines(self) -> List[str]:
+    async def load_index_lines(self) -> list[str]:
         """Load raw index lines from storage."""
-        pass
+        ...
 
     @abc.abstractmethod
-    async def save_index_lines(self, lines: List[str]) -> None:
+    async def save_index_lines(self, lines: list[str]) -> None:
         """Save raw index lines to storage."""
-        pass
+        ...
 
     @abc.abstractmethod
-    async def get_completed_hashes(self) -> Set[str]:
+    async def get_completed_hashes(self) -> set[str]:
         """Get set of completed work hashes."""
-        pass
+        ...
 
     @abc.abstractmethod
     async def is_completed(self, work_hash: str) -> bool:
         """Check if a work item has been completed."""
-        pass
+        ...
 
     @abc.abstractmethod
     async def is_worker_lock_taken(self, work_hash: str, worker_lock_timeout_secs: int = 1800) -> bool:
         """Check if a worker lock is taken and not stale."""
-        pass
+        ...
 
     @abc.abstractmethod
     async def create_worker_lock(self, work_hash: str) -> None:
         """Create a worker lock for a work hash."""
-        pass
+        ...
 
     @abc.abstractmethod
     async def delete_worker_lock(self, work_hash: str) -> None:
         """Delete the worker lock for a work hash if it exists."""
-        pass
+        ...
 
     @abc.abstractmethod
     async def create_done_flag(self, work_hash: str) -> None:
         """Create a done flag for a work hash."""
-        pass
+        ...
 
 
 class WorkQueue:
@@ -90,7 +91,7 @@ class WorkQueue:
         self._completed_hash_cache = set()
 
     @staticmethod
-    def _encode_csv_row(row: List[str]) -> str:
+    def _encode_csv_row(row: list[str]) -> str:
         """Encodes a row of data for CSV storage with proper escaping."""
         output = io.StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
@@ -98,19 +99,19 @@ class WorkQueue:
         return output.getvalue().strip()
 
     @staticmethod
-    def _decode_csv_row(line: str) -> List[str]:
+    def _decode_csv_row(line: str) -> list[str]:
         """Decodes a CSV row with proper unescaping."""
         return next(csv.reader([line]))
 
     @staticmethod
-    def _compute_workgroup_hash(work_paths: List[str]) -> str:
+    def _compute_workgroup_hash(work_paths: list[str]) -> str:
         """Compute a deterministic hash for a group of paths."""
         sha1 = hashlib.sha1()
         for path in sorted(work_paths):
             sha1.update(path.encode("utf-8"))
         return sha1.hexdigest()
 
-    def _parse_index_lines(self, lines: List[str]) -> Dict[str, List[str]]:
+    def _parse_index_lines(self, lines: list[str]) -> dict[str, list[str]]:
         """Parse index lines into a dict of hash to paths."""
         result = {}
         for line in lines:
@@ -120,11 +121,11 @@ class WorkQueue:
                     result[parts[0]] = parts[1:]
         return result
 
-    def _make_index_lines(self, groups: Dict[str, List[str]]) -> List[str]:
+    def _make_index_lines(self, groups: dict[str, list[str]]) -> list[str]:
         """Create encoded lines from groups dict."""
         return [self._encode_csv_row([group_hash] + group_paths) for group_hash, group_paths in groups.items()]
 
-    async def populate_queue(self, work_paths: List[str], items_per_group: int) -> None:
+    async def populate_queue(self, work_paths: list[str], items_per_group: int) -> None:
         """
         Add new items to the work queue.
         """
@@ -171,7 +172,7 @@ class WorkQueue:
         logger.info(f"Initialized queue with {self.size:,} work items")
         return self.size
 
-    async def get_work(self, worker_lock_timeout_secs: int = 1800) -> Optional[WorkItem]:
+    async def get_work(self, worker_lock_timeout_secs: int = 1800) -> WorkItem | None:
         """
         Get the next available work item that isn't completed or locked.
         """
@@ -203,12 +204,7 @@ class WorkQueue:
                 continue
 
             # Create lock (overwrites if stale)
-            try:
-                await self.backend.create_worker_lock(work_item.hash)
-            except Exception as e:
-                logger.warning(f"Failed to create lock for {work_item.hash}: {e}")
-                self._queue.task_done()
-                continue
+            await self.backend.create_worker_lock(work_item.hash)
 
             refresh_completed_hash_attempt = 0
             return work_item
@@ -243,7 +239,7 @@ class LocalBackend(Backend):
         os.makedirs(self._done_flags_dir, exist_ok=True)
         os.makedirs(self._locks_dir, exist_ok=True)
 
-    def _download_zstd_csv_local(self, local_path: str) -> List[str]:
+    def _download_zstd_csv_local(self, local_path: str) -> list[str]:
         """
         Read a zstd-compressed CSV from a local path.
         If the file doesn't exist, returns an empty list.
@@ -257,7 +253,7 @@ class LocalBackend(Backend):
         lines = data.decode("utf-8").splitlines()
         return lines
 
-    def _upload_zstd_csv_local(self, local_path: str, lines: List[str]) -> None:
+    def _upload_zstd_csv_local(self, local_path: str, lines: list[str]) -> None:
         """
         Write a zstd-compressed CSV to a local path.
         """
@@ -269,14 +265,14 @@ class LocalBackend(Backend):
         with open(local_path, "wb") as f:
             f.write(compressed_data)
 
-    async def load_index_lines(self) -> List[str]:
+    async def load_index_lines(self) -> list[str]:
         return await asyncio.to_thread(self._download_zstd_csv_local, self._index_path)
 
-    async def save_index_lines(self, lines: List[str]) -> None:
+    async def save_index_lines(self, lines: list[str]) -> None:
         await asyncio.to_thread(self._upload_zstd_csv_local, self._index_path, lines)
 
-    async def get_completed_hashes(self) -> Set[str]:
-        def _list_completed() -> Set[str]:
+    async def get_completed_hashes(self) -> set[str]:
+        def _list_completed() -> set[str]:
             if not os.path.isdir(self._done_flags_dir):
                 return set()
             return {f[len("done_") : -len(".flag")] for f in os.listdir(self._done_flags_dir) if f.startswith("done_") and f.endswith(".flag")}
@@ -291,13 +287,13 @@ class LocalBackend(Backend):
         """Internal method to get done flag path."""
         return os.path.join(self._done_flags_dir, f"done_{work_hash}.flag")
 
-    async def _get_object_mtime(self, path: str) -> Optional[datetime.datetime]:
+    async def _get_object_mtime(self, path: str) -> datetime.datetime | None:
         """Internal method to get object mtime."""
 
-        def _get_mtime() -> Optional[datetime.datetime]:
+        def _get_mtime() -> datetime.datetime | None:
             if not os.path.exists(path):
                 return None
-            return datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
+            return datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.UTC)
 
         return await asyncio.to_thread(_get_mtime)
 
@@ -309,7 +305,7 @@ class LocalBackend(Backend):
         if not lock_mtime:
             return False
 
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         return (now - lock_mtime).total_seconds() <= worker_lock_timeout_secs
 
     async def create_worker_lock(self, work_hash: str) -> None:
@@ -317,8 +313,7 @@ class LocalBackend(Backend):
         lock_path = self._get_worker_lock_path(work_hash)
 
         def _create() -> None:
-            with open(lock_path, "wb"):
-                pass
+            Path(lock_path).touch()
 
         await asyncio.to_thread(_create)
 
@@ -342,8 +337,7 @@ class LocalBackend(Backend):
         done_flag_path = self._get_done_flag_path(work_hash)
 
         def _create() -> None:
-            with open(done_flag_path, "wb"):
-                pass
+            Path(done_flag_path).touch()
 
         await asyncio.to_thread(_create)
 
@@ -357,14 +351,14 @@ class S3Backend(Backend):
         self._index_path = os.path.join(self.workspace_path, "work_index_list.csv.zstd")
         self._output_glob = os.path.join(self.workspace_path, DONE_FLAGS_DIR, "*.flag")
 
-    async def load_index_lines(self) -> List[str]:
+    async def load_index_lines(self) -> list[str]:
         return await asyncio.to_thread(download_zstd_csv, self.s3_client, self._index_path)
 
-    async def save_index_lines(self, lines: List[str]) -> None:
+    async def save_index_lines(self, lines: list[str]) -> None:
         await asyncio.to_thread(upload_zstd_csv, self.s3_client, self._index_path, lines)
 
-    async def get_completed_hashes(self) -> Set[str]:
-        def _list_completed() -> Set[str]:
+    async def get_completed_hashes(self) -> set[str]:
+        def _list_completed() -> set[str]:
             done_work_items = expand_s3_glob(self.s3_client, self._output_glob)
             return {
                 os.path.basename(item)[len("done_") : -len(".flag")]
@@ -382,11 +376,11 @@ class S3Backend(Backend):
         """Internal method to get done flag path."""
         return os.path.join(self.workspace_path, DONE_FLAGS_DIR, f"done_{work_hash}.flag")
 
-    async def _get_object_mtime(self, path: str) -> Optional[datetime.datetime]:
+    async def _get_object_mtime(self, path: str) -> datetime.datetime | None:
         """Internal method to get object mtime."""
         bucket, key = parse_s3_path(path)
 
-        def _head_object() -> Optional[datetime.datetime]:
+        def _head_object() -> datetime.datetime | None:
             try:
                 response = self.s3_client.head_object(Bucket=bucket, Key=key)
                 return response["LastModified"]
@@ -405,7 +399,7 @@ class S3Backend(Backend):
         if not lock_mtime:
             return False
 
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         return (now - lock_mtime).total_seconds() <= worker_lock_timeout_secs
 
     async def create_worker_lock(self, work_hash: str) -> None:

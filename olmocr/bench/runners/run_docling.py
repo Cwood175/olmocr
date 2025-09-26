@@ -45,8 +45,11 @@ async def run_docling(
 
     try:
         # Write the single-page PDF to the temporary file
-        with open(tmp_pdf_path, "wb") as f:
-            pdf_writer.write(f)
+        def write_pdf() -> None:
+            with open(tmp_pdf_path, "wb") as f:
+                pdf_writer.write(f)
+
+        await asyncio.to_thread(write_pdf)
 
         # Build the command to run docling on the single-page PDF
         if use_smoldocling:
@@ -57,15 +60,18 @@ async def run_docling(
         # Run the command asynchronously
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
-        stdout, stderr = await proc.communicate()
+        _, stderr = await proc.communicate()
 
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
             raise RuntimeError(f"docling command failed with return code {proc.returncode}: {error_msg}")
 
         # Read the results from the temporary markdown file
-        with open(tmp_md_path, "r", encoding="utf-8") as f:
-            result = f.read()
+        def read_markdown() -> str:
+            with open(tmp_md_path, "r", encoding="utf-8") as f:
+                return f.read()
+
+        result = await asyncio.to_thread(read_markdown)
 
         return result
 

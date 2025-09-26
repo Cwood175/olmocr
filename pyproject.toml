@@ -166,9 +166,11 @@ reportPrivateImportUsage = false
 line-length = 160
 target-version = "py311"
 exclude = ["olmocr/train/molmo", "tests/*"]
+
+[tool.ruff.lint]
 ignore = ["E722", "F541"] #igore bare except, and f string without placeholders
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
 [tool.mypy]

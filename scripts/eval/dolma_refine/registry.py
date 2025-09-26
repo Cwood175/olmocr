@@ -1,16 +1,6 @@
 import re
-from typing import (
-    Callable,
-    Dict,
-    Generator,
-    Generic,
-    Literal,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    overload,
-)
+from collections.abc import Callable, Generator
+from typing import ClassVar, Generic, Literal, TypeVar, overload
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -19,8 +9,8 @@ R = TypeVar("R")
 class BaseRegistry(Generic[T]):
     """A registry for objects."""
 
-    _registry_of_registries: Dict[str, Type["BaseRegistry"]] = {}
-    _registry_storage: Dict[str, Tuple[T, Optional[str]]]
+    _registry_of_registries: ClassVar[dict[str, type["BaseRegistry"]]] = {}
+    _registry_storage: dict[str, tuple[T, str | None]]
 
     @classmethod
     def _add_to_registry_of_registries(cls) -> None:
@@ -29,28 +19,28 @@ class BaseRegistry(Generic[T]):
             cls._registry_of_registries[name] = cls
 
     @classmethod
-    def registries(cls) -> Generator[Tuple[str, Type["BaseRegistry"]], None, None]:
+    def registries(cls) -> Generator[tuple[str, type["BaseRegistry"]], None, None]:
         """Yield all registries in the registry of registries."""
         yield from sorted(cls._registry_of_registries.items())
 
     @classmethod
-    def _get_storage(cls) -> Dict[str, Tuple[T, Optional[str]]]:
+    def _get_storage(cls) -> dict[str, tuple[T, str | None]]:
         if not hasattr(cls, "_registry_storage"):
             cls._registry_storage = {}
         return cls._registry_storage  # pyright: ignore
 
     @classmethod
-    def items(cls) -> Generator[Tuple[str, T], None, None]:
+    def items(cls) -> Generator[tuple[str, T], None, None]:
         """Yield all items in the registry."""
         yield from sorted((n, t) for (n, (t, _)) in cls._get_storage().items())
 
     @classmethod
-    def items_with_description(cls) -> Generator[Tuple[str, T, Optional[str]], None, None]:
+    def items_with_description(cls) -> Generator[tuple[str, T, str | None], None, None]:
         """Yield all items in the registry with their descriptions."""
         yield from sorted((n, t, d) for (n, (t, d)) in cls._get_storage().items())
 
     @classmethod
-    def add(cls, name: str, desc: Optional[str] = None) -> Callable[[R], R]:
+    def add(cls, name: str, desc: str | None = None) -> Callable[[R], R]:
         """Add a class to the registry."""
 
         # Add the registry to the registry of registries
@@ -59,8 +49,8 @@ class BaseRegistry(Generic[T]):
         def _add(
             inner_self: T,
             inner_name: str = name,
-            inner_desc: Optional[str] = desc,
-            inner_cls: Type[BaseRegistry] = cls,
+            inner_desc: str | None = desc,
+            inner_cls: type[BaseRegistry] = cls,
         ) -> T:
             """Add a tagger to the registry using tagger_name as the name."""
 
@@ -99,10 +89,10 @@ class BaseRegistry(Generic[T]):
 
     @overload
     @classmethod
-    def get(cls, name: str, raise_on_missing: Literal[False]) -> Optional[T]: ...
+    def get(cls, name: str, raise_on_missing: Literal[False]) -> T | None: ...
 
     @classmethod
-    def get(cls, name: str, raise_on_missing: bool = True) -> Optional[T]:
+    def get(cls, name: str, raise_on_missing: bool = True) -> T | None:
         """Get a tagger from the registry; raise ValueError if it doesn't exist."""
 
         matches = [registered for registered in cls._get_storage() if re.match(registered, name)]

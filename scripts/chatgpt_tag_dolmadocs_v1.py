@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Rich Autoscan Dolma Documents with ChatGPT Vision
 
@@ -7,6 +6,7 @@ This script combines the functionality of autoscan_dolmadocs.py and rich_tagging
 2. Creates attribute folders mirroring the document structure
 3. Simplifies with direct ThreadPoolExecutor usage instead of work queue system
 """
+
 import argparse
 import gzip
 import json
@@ -16,7 +16,6 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 import boto3
 import pydantic
@@ -123,7 +122,7 @@ class PIIAnnotation(pydantic.BaseModel):
         ]
         return any(pii_fields) or bool(self.other_pii.strip())
 
-    def get_pii_types(self) -> List[str]:
+    def get_pii_types(self) -> list[str]:
         """Get a list of all PII types found in the document"""
         pii_types = []
 
@@ -188,14 +187,7 @@ def list_result_files(s3_client, workspace_path):
                 [
                     f"s3://{bucket}/{obj['Key']}"
                     for obj in page["Contents"]
-                    if (
-                        obj["Key"].endswith(".jsonl")
-                        or obj["Key"].endswith(".json")
-                        or obj["Key"].endswith(".jsonl.gz")
-                        or obj["Key"].endswith(".jsonl.zst")
-                        or obj["Key"].endswith(".jsonl.ztd")
-                        or obj["Key"].endswith(".jsonl.zstd")
-                    )
+                    if obj["Key"].endswith((".jsonl", ".json", ".jsonl.gz", ".jsonl.zst", ".jsonl.ztd", ".jsonl.zstd"))
                 ]
             )
 
@@ -219,7 +211,7 @@ def load_document_file(s3_client, file_path):
         # Decompress if needed
         if file_path.endswith(".gz"):
             file_bytes = gzip.decompress(raw)
-        elif file_path.endswith(".zst") or file_path.endswith(".ztd") or file_path.endswith(".zstd"):
+        elif file_path.endswith((".zst", ".ztd", ".zstd")):
             dctx = zstd.ZstdDecompressor()
             file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
         else:
@@ -227,7 +219,7 @@ def load_document_file(s3_client, file_path):
 
         # Return the decoded lines
         return file_bytes.decode("utf-8").strip().split("\n")
-    except Exception as e:
+    except (OSError, UnicodeError, gzip.BadGzipFile, zstd.ZstdError) as e:
         logger.error(f"Error loading file {file_path}: {e}")
         return []
 
@@ -310,7 +302,7 @@ def get_all_pages(s3_client, document_files):
     return file_contents
 
 
-def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> Optional[PIIAnnotation]:
+def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> PIIAnnotation | None:
     """Analyze a page using the ChatGPT vision model with structured outputs."""
     try:
         # Download PDF to temp file and render to image
@@ -532,7 +524,7 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
                     fh.write(payload)
                 logger.info(f"Wrote {len(file_entries)} attribute entries to {out_path}")
 
-        except Exception as e:
+        except (OSError, KeyError, TypeError, ValueError, zstd.ZstdError) as e:
             logger.error(f"Error writing attributes for {source_file}: {e}")
             continue
 
@@ -594,7 +586,7 @@ def main():
 
     # Process each file individually
     for file_index, (file_path, documents) in enumerate(file_documents.items()):
-        logger.info(f"Processing file {file_index+1}/{len(file_documents)}: {file_path}")
+        logger.info(f"Processing file {file_index + 1}/{len(file_documents)}: {file_path}")
 
         # Only process documents that have valid information
         valid_docs = []
@@ -631,11 +623,11 @@ def main():
                     try:
                         result = future.result()
                         results.append(result)
-                    except Exception as e:
+                    except (OSError, RuntimeError, TypeError, ValueError) as e:
                         logger.error(f"Error processing document: {e}")
 
             # Save results for this batch
-            batch_output_dir = os.path.join(args.output_dir, f"file_{file_index+1}_batch_{batch_num}")
+            batch_output_dir = os.path.join(args.output_dir, f"file_{file_index + 1}_batch_{batch_num}")
             os.makedirs(batch_output_dir, exist_ok=True)
             save_results(results, batch_output_dir)
 
@@ -645,7 +637,7 @@ def main():
 
         # Write attributes for the entire file, maintaining line order
         write_attribute_file(args, all_results, file_documents, workspace_s3)
-        logger.info(f"Completed processing file {file_index+1}/{len(file_documents)}: {file_path}")
+        logger.info(f"Completed processing file {file_index + 1}/{len(file_documents)}: {file_path}")
 
     logger.info(f"Processing complete - processed {len(file_documents)} files")
 

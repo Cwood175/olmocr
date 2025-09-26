@@ -14,10 +14,10 @@ import re
 from pathlib import Path
 
 import click
-import matplotlib.font_manager as font_manager
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
+from matplotlib import font_manager
 
 # AI2 Colors
 AI2_PINK = "#f0529c"
@@ -46,8 +46,7 @@ def download_and_cache_file(url, cache_dir=None):
         response.raise_for_status()
 
         with open(cached_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+            f.writelines(response.iter_content(chunk_size=8192))
 
     return str(cached_path)
 
@@ -114,7 +113,7 @@ def create_boxplot(names, medians, errors, ci_low, ci_high, output_path, font_pa
         whis=1.5,
         patch_artist=True,
         widths=0.15,  # Make boxes much narrower
-        medianprops=dict(color="black"),  # Make median line black
+        medianprops={"color": "black"},  # Make median line black
         positions=np.arange(len(names)) * 0.25,
     )  # Reduce spacing between boxes significantly
 
@@ -187,8 +186,8 @@ def main(input_file, output_file, manrope_medium_font_path):
         create_boxplot(names, medians, errors, ci_low, ci_high, output_file, font_path)
         click.echo(f"Plot successfully saved to {output_file}")
 
-    except Exception as e:
-        click.echo(f"Error: {str(e)}", err=True)
+    except (OSError, ValueError, requests.exceptions.RequestException) as e:
+        click.echo(f"Error: {e!s}", err=True)
         raise click.Abort()
 
 

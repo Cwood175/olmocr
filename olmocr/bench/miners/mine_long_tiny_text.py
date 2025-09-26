@@ -18,11 +18,10 @@ import base64
 import json
 import os
 import random
-from typing import List
 
 import pypdf
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from tqdm import tqdm
 
 from olmocr.bench.tests import TextPresenceTest, save_tests
@@ -63,12 +62,12 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except (OSError, pypdf.errors.PyPdfError) as e:
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         return False  # Return False instead of raising to continue processing other PDFs
 
 
-def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
+def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> list[str]:
     """
     Use Gemini to detect long text in a rendered PDF page.
 
@@ -88,9 +87,13 @@ def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
 
         # Render the PDF page as an image
         try:
-            image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)  # render_pdf_to_base64png is 1-indexed
-        except Exception as e:
-            print(f"Error rendering PDF page {page_num+1} from {pdf_path}: {str(e)}")
+            image_base64 = render_pdf_to_base64png(
+                pdf_path,
+                page_num=page_num + 1,
+                target_longest_image_dim=2048,
+            )  # render_pdf_to_base64png is 1-indexed
+        except (OSError, RuntimeError, ValueError) as e:
+            print(f"Error rendering PDF page {page_num + 1} from {pdf_path}: {e!s}")
             return []
 
         image_part = types.Part(inline_data=types.Blob(mime_type="image/png", data=base64.b64decode(image_base64)))
@@ -129,27 +132,32 @@ def detect_long_text(pdf_path: str, page_num: int, api_key: str) -> List[str]:
         response = client.models.generate_content(model=model, contents=contents, config=generate_content_config)
 
         if len(response.candidates) == 0:
-            print(f"No candidates found for {pdf_path} page {page_num+1}")
+            print(f"No candidates found for {pdf_path} page {page_num + 1}")
             return []
 
         if response.candidates[0].finish_reason != types.FinishReason.STOP:
-            print(f"Finish reason was not STOP for {pdf_path} page {page_num+1}, likely a processing error")
+            print(f"Finish reason was not STOP for {pdf_path} page {page_num + 1}, likely a processing error")
             return []
 
         try:
             data = json.loads(response.candidates[0].content.parts[0].text)
             return data.get("equations", [])
         except json.JSONDecodeError:
-            print(f"Failed to parse JSON response for {pdf_path} page {page_num+1}")
+            print(f"Failed to parse JSON response for {pdf_path} page {page_num + 1}")
             return []
 
-    except Exception as e:
-        print(f"Error detecting text in {pdf_path} page {page_num+1}: {str(e)}")
+    except (errors.APIError, OSError, ValueError) as e:
+        print(f"Error detecting text in {pdf_path} page {page_num + 1}: {e!s}")
         return []
 
 
 def process_pdf(
-    pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 20, force_processing: bool = True
+    pdf_path: str,
+    output_dir: str,
+    api_key: str,
+    tests: list[TextPresenceTest],
+    max_pages_per_pdf: int = 20,
+    force_processing: bool = True,
 ) -> bool:
     """
     Process a single PDF, extracting text from multiple pages.
@@ -202,7 +210,7 @@ def process_pdf(
 
             # Extract the page regardless of text detection
             pdf_basename = os.path.splitext(pdf_filename)[0]
-            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num+1}.pdf")
+            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num + 1}.pdf")
 
             # Extract the page regardless of text detection
             page_extracted = extract_page_from_pdf(pdf_path, output_pdf_path, page_num)
@@ -210,12 +218,12 @@ def process_pdf(
                 pdf_processed = True
 
             if not text_sections:
-                print(f"No text detected in {pdf_filename} page {page_num+1} - creating empty test")
+                print(f"No text detected in {pdf_filename} page {page_num + 1} - creating empty test")
                 # Create a placeholder test to ensure the PDF is represented
-                test_id = f"{pdf_basename}_pg{page_num+1}_no_text"
+                test_id = f"{pdf_basename}_pg{page_num + 1}_no_text"
                 test = TextPresenceTest(
                     id=test_id,
-                    pdf=f"{pdf_basename}_pg{page_num+1}.pdf",
+                    pdf=f"{pdf_basename}_pg{page_num + 1}.pdf",
                     page=1,  # The extracted PDF has only one page
                     type="present",
                     text="No text detected",  # Placeholder text
@@ -225,10 +233,10 @@ def process_pdf(
             else:
                 # Create tests for each text section
                 for i, text_section in enumerate(text_sections):
-                    test_id = f"{pdf_basename}_pg{page_num+1}_text_{i:02d}"
+                    test_id = f"{pdf_basename}_pg{page_num + 1}_text_{i:02d}"
                     test = TextPresenceTest(
                         id=test_id,
-                        pdf=f"{pdf_basename}_pg{page_num+1}.pdf",
+                        pdf=f"{pdf_basename}_pg{page_num + 1}.pdf",
                         page=1,  # The extracted PDF has only one page
                         type="present",
                         text=text_section,
@@ -236,18 +244,18 @@ def process_pdf(
                     )
                     tests.append(test)
 
-            print(f"Processed {pdf_filename} page {page_num+1}, found {len(text_sections)} text sections")
+            print(f"Processed {pdf_filename} page {page_num + 1}, found {len(text_sections)} text sections")
             processed_pages += 1
 
         print(f"Completed processing {processed_pages} pages from {pdf_filename}")
         return pdf_processed
 
-    except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
+    except (OSError, pypdf.errors.PyPdfError) as e:
+        print(f"Error processing {pdf_filename}: {e!s}")
         return False
 
 
-def get_pdf_files_from_directory(directory: str) -> List[str]:
+def get_pdf_files_from_directory(directory: str) -> list[str]:
     """
     Get a list of all PDF files in a directory.
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# Run this script with Python 3.
 """
 Document Classification for Dolma Documents with ChatGPT Vision
 
@@ -7,20 +7,22 @@ This script uses ChatGPT Vision API to classify PDF documents into various categ
 2. Classifies documents into categories like academic papers, textbooks, news articles, etc.
 3. Creates attribute folders mirroring the document structure with classification results
 """
+
 import argparse
 import gzip
 import json
 import logging
 import os
 import tempfile
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 import boto3
 import pydantic
 import zstandard as zstd
+from botocore.exceptions import BotoCoreError, ClientError
 from openai import OpenAI
 from tqdm import tqdm
 
@@ -99,7 +101,7 @@ class DocumentClassification(pydantic.BaseModel):
     classification_notes: str
 
     @property
-    def get_document_types(self) -> List[str]:
+    def get_document_types(self) -> list[str]:
         """Get a list of all document types identified"""
         doc_types = []
 
@@ -134,14 +136,41 @@ class DocumentClassification(pydantic.BaseModel):
 def parse_args():
     parser = argparse.ArgumentParser(description="Document Classification for OLMO OCR workspace using ChatGPT Vision")
     parser.add_argument("workspace", help="OLMO OCR workspace path (s3://bucket/workspace)")
-    parser.add_argument("--workspace_profile", help="AWS profile for accessing workspace (documents and attributes)")
-    parser.add_argument("--pdf_profile", help="AWS profile for accessing PDFs (can be different from workspace profile)")
-    parser.add_argument("--output_dir", default="dolma_samples", help="Directory to save output files")
-    parser.add_argument("--max_workers", type=int, default=16, help="Maximum number of worker threads")
-    parser.add_argument("--openai_api_key", help="OpenAI API key (or set OPENAI_API_KEY env var)")
+    parser.add_argument(
+        "--workspace_profile",
+        help="AWS profile for accessing workspace (documents and attributes)",
+    )
+    parser.add_argument(
+        "--pdf_profile",
+        help="AWS profile for accessing PDFs (can be different from workspace profile)",
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="dolma_samples",
+        help="Directory to save output files",
+    )
+    parser.add_argument(
+        "--max_workers",
+        type=int,
+        default=16,
+        help="Maximum number of worker threads",
+    )
+    parser.add_argument(
+        "--openai_api_key",
+        help="OpenAI API key (or set OPENAI_API_KEY env var)",
+    )
     parser.add_argument("--openai_model", default="gpt-4.1", help="OpenAI model to use")
-    parser.add_argument("--attribute_name", default="chatgpt_doc_classification", help="Path to use for attribute naming")
-    parser.add_argument("--batch_size", type=int, default=1000, help="Number of documents to process in each batch")
+    parser.add_argument(
+        "--attribute_name",
+        default="chatgpt_doc_classification",
+        help="Path to use for attribute naming",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1000,
+        help="Number of documents to process in each batch",
+    )
     return parser.parse_args()
 
 
@@ -160,13 +189,15 @@ def list_result_files(s3_client, workspace_path):
                 [
                     f"s3://{bucket}/{obj['Key']}"
                     for obj in page["Contents"]
-                    if (
-                        obj["Key"].endswith(".jsonl")
-                        or obj["Key"].endswith(".json")
-                        or obj["Key"].endswith(".jsonl.gz")
-                        or obj["Key"].endswith(".jsonl.zst")
-                        or obj["Key"].endswith(".jsonl.ztd")
-                        or obj["Key"].endswith(".jsonl.zstd")
+                    if obj["Key"].endswith(
+                        (
+                            ".jsonl",
+                            ".json",
+                            ".jsonl.gz",
+                            ".jsonl.zst",
+                            ".jsonl.ztd",
+                            ".jsonl.zstd",
+                        )
                     )
                 ]
             )
@@ -191,7 +222,7 @@ def load_document_file(s3_client, file_path):
         # Decompress if needed
         if file_path.endswith(".gz"):
             file_bytes = gzip.decompress(raw)
-        elif file_path.endswith(".zst") or file_path.endswith(".ztd") or file_path.endswith(".zstd"):
+        elif file_path.endswith((".zst", ".ztd", ".zstd")):
             dctx = zstd.ZstdDecompressor()
             file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
         else:
@@ -199,7 +230,15 @@ def load_document_file(s3_client, file_path):
 
         # Return the decoded lines
         return file_bytes.decode("utf-8").strip().split("\n")
-    except Exception as e:
+    except (
+        BotoCoreError,
+        ClientError,
+        EOFError,
+        OSError,
+        ValueError,
+        zlib.error,
+        zstd.ZstdError,
+    ) as e:
         logger.error(f"Error loading file {file_path}: {e}")
         return []
 
@@ -251,7 +290,7 @@ def get_document_info_from_line(line, file_path, line_index):
     except json.JSONDecodeError:
         logger.warning(f"Invalid JSON in {file_path} line {line_index}")
         return None
-    except Exception as e:
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as e:
         logger.warning(f"Error processing document in {file_path} line {line_index}: {e}")
         return None
 
@@ -282,7 +321,7 @@ def get_all_pages(s3_client, document_files):
     return file_contents
 
 
-def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> Optional[DocumentClassification]:
+def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> DocumentClassification | None:
     """Analyze a page using the ChatGPT vision model with structured outputs for document classification."""
     try:
         # Download PDF to temp file and render to image
@@ -499,7 +538,15 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
                     fh.write(payload)
                 logger.info(f"Wrote {len(file_entries)} attribute entries to {out_path}")
 
-        except Exception as e:
+        except (
+            BotoCoreError,
+            ClientError,
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            zstd.ZstdError,
+        ) as e:
             logger.error(f"Error writing attributes for {source_file}: {e}")
             continue
 
@@ -561,7 +608,7 @@ def main():
 
     # Process each file individually
     for file_index, (file_path, documents) in enumerate(file_documents.items()):
-        logger.info(f"Processing file {file_index+1}/{len(file_documents)}: {file_path}")
+        logger.info(f"Processing file {file_index + 1}/{len(file_documents)}: {file_path}")
 
         # Only process documents that have valid information
         valid_docs = []
@@ -595,14 +642,11 @@ def main():
                     futures.append(executor.submit(process_single_page, args, doc_info, pdf_s3))
 
                 for future in tqdm(futures, desc=f"Processing batch {batch_num} of {file_path}"):
-                    try:
-                        result = future.result()
-                        results.append(result)
-                    except Exception as e:
-                        logger.error(f"Error processing document: {e}")
+                    result = future.result()
+                    results.append(result)
 
             # Save results for this batch
-            batch_output_dir = os.path.join(args.output_dir, f"file_{file_index+1}_batch_{batch_num}")
+            batch_output_dir = os.path.join(args.output_dir, f"file_{file_index + 1}_batch_{batch_num}")
             os.makedirs(batch_output_dir, exist_ok=True)
             save_results(results, batch_output_dir)
 
@@ -612,7 +656,7 @@ def main():
 
         # Write attributes for the entire file, maintaining line order
         write_attribute_file(args, all_results, file_documents, workspace_s3)
-        logger.info(f"Completed processing file {file_index+1}/{len(file_documents)}: {file_path}")
+        logger.info(f"Completed processing file {file_index + 1}/{len(file_documents)}: {file_path}")
 
     logger.info(f"Processing complete - processed {len(file_documents)} files")
 

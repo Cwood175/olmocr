@@ -86,8 +86,6 @@ class Token:
 class ExpressionNode:
     """Base class for expression tree nodes"""
 
-    pass
-
 
 class RuleNode(ExpressionNode):
     """Leaf node representing a single rule"""
@@ -196,14 +194,7 @@ def get_attributes_folder(docs_folder, attr_folder=None):
     else:
         # For local paths
         docs_path = Path(docs_folder)
-
-        # Check if the documents folder is in a 'documents' directory
-        if docs_path.name == "documents":
-            # Replace /documents with /attributes
-            attr_path = docs_path.parent / "attributes"
-        else:
-            # Otherwise, add a parent level and include 'attributes'
-            attr_path = docs_path.parent / "attributes"
+        attr_path = docs_path.parent / "attributes"
 
         return str(attr_path)
 
@@ -218,6 +209,7 @@ def get_s3_bytes(s3_client, s3_path):
 def list_jsonl_files(path, s3_client=None, recursive=False):
     """List all JSONL files in the given path, locally or in S3."""
     jsonl_files = []
+    jsonl_suffixes = (".jsonl", ".json", ".jsonl.gz", ".jsonl.zst", ".jsonl.ztd", ".jsonl.zstd")
 
     if path.startswith("s3://"):
         bucket, prefix = parse_s3_path(path)
@@ -229,39 +221,18 @@ def list_jsonl_files(path, s3_client=None, recursive=False):
             if "Contents" in page:
                 for obj in page["Contents"]:
                     key = obj["Key"]
-                    if (
-                        key.endswith(".jsonl")
-                        or key.endswith(".json")
-                        or key.endswith(".jsonl.gz")
-                        or key.endswith(".jsonl.zst")
-                        or key.endswith(".jsonl.ztd")
-                        or key.endswith(".jsonl.zstd")
-                    ):
+                    if key.endswith(jsonl_suffixes):
                         jsonl_files.append(f"s3://{bucket}/{key}")
     else:
         # Local file system
         path_obj = Path(path)
         if recursive:
             for file_path in path_obj.rglob("*"):
-                if (
-                    file_path.name.endswith(".jsonl")
-                    or file_path.name.endswith(".json")
-                    or file_path.name.endswith(".jsonl.gz")
-                    or file_path.name.endswith(".jsonl.zst")
-                    or file_path.name.endswith(".jsonl.ztd")
-                    or file_path.name.endswith(".jsonl.zstd")
-                ):
+                if file_path.name.endswith(jsonl_suffixes):
                     jsonl_files.append(str(file_path))
         else:
             for file_path in path_obj.glob("*"):
-                if (
-                    file_path.name.endswith(".jsonl")
-                    or file_path.name.endswith(".json")
-                    or file_path.name.endswith(".jsonl.gz")
-                    or file_path.name.endswith(".jsonl.zst")
-                    or file_path.name.endswith(".jsonl.ztd")
-                    or file_path.name.endswith(".jsonl.zstd")
-                ):
+                if file_path.name.endswith(jsonl_suffixes):
                     jsonl_files.append(str(file_path))
 
     return jsonl_files
@@ -296,7 +267,7 @@ def load_jsonl_file(file_path, s3_client=None):
                     dctx = zstd.ZstdDecompressor(max_window_size=2147483648)  # Use a large window size
                     decompressor = dctx.stream_reader(io.BytesIO(raw_data))
                     decompressed = decompressor.read()
-                except Exception as inner_e:
+                except (OSError, ValueError, zstd.ZstdError) as inner_e:
                     # If both methods fail, try with chunking
                     logger.warning(f"Stream decompression also failed, trying chunked reading: {inner_e}")
 
@@ -319,8 +290,8 @@ def load_jsonl_file(file_path, s3_client=None):
         lines = decompressed.decode("utf-8").strip().split("\n")
         return [json.loads(line) for line in lines if line.strip()]
 
-    except Exception as e:
-        logger.error(f"Error loading file {file_path}: {e}")
+    except (EOFError, OSError, UnicodeError, ValueError, zstd.ZstdError):
+        logger.exception("Error loading file %s", file_path)
         return []
 
 
@@ -359,11 +330,10 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
             # Using delimiter parameter to list "directories" in S3
             paginator = s3_client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=bucket, Prefix=attr_prefix, Delimiter="/"):
-                if "CommonPrefixes" in page:
-                    for prefix in page["CommonPrefixes"]:
-                        subdir = f"s3://{bucket}/{prefix['Prefix']}"
-                        attr_subdirs.append(subdir)
-                        logger.info(f"Found attribute subdirectory: {subdir}")
+                for prefix in page.get("CommonPrefixes", []):
+                    subdir = f"s3://{bucket}/{prefix['Prefix']}"
+                    attr_subdirs.append(subdir)
+                    logger.info(f"Found attribute subdirectory: {subdir}")
 
             # If no subdirectories, use the main folder
             if not attr_subdirs:
@@ -412,10 +382,9 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                     if "id" in doc:
                         # If the document already exists, use the one with attributes if possible
                         doc_id = doc["id"]
-                        if doc_id in docs_by_id:
-                            if "attributes" not in doc and "attributes" in docs_by_id[doc_id]:
-                                # Keep the existing document that has attributes
-                                continue
+                        if doc_id in docs_by_id and "attributes" not in doc and "attributes" in docs_by_id[doc_id]:
+                            # Keep the existing document that has attributes
+                            continue
 
                         # Initialize attributes if needed
                         if "attributes" not in doc:
@@ -428,8 +397,8 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                         if "attributes" not in doc:
                             doc["attributes"] = {}
                         merged_docs.append(doc)
-            except Exception as e:
-                logger.error(f"Error processing document file {doc_path}: {e}")
+            except (AttributeError, KeyError, OSError, TypeError, ValueError):
+                logger.exception("Error processing document file %s", doc_path)
                 continue
 
         logger.info(f"Loaded {len(docs_by_id)} unique documents with IDs")
@@ -490,11 +459,11 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
 
                             logger.info(f"Matched attributes for {docs_matched_in_file} documents from {basename} in {subdir}")
 
-                    except Exception as e:
-                        logger.error(f"Error processing attribute file {attr_path}: {e}")
+                    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+                        logger.exception("Error processing attribute file %s", attr_path)
                         continue
-            except Exception as e:
-                logger.error(f"Error processing attribute subdirectory {subdir}: {e}")
+            except (AttributeError, KeyError, OSError, TypeError, ValueError):
+                logger.exception("Error processing attribute subdirectory %s", subdir)
                 continue
 
         # Convert the dictionary to a list for return
@@ -505,8 +474,8 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
         logger.info(f"Total attribute subdirectories processed: {len(attr_subdirs)}")
 
         return merged_docs
-    except Exception as e:
-        logger.error(f"Error in load_documents_and_attributes: {e}")
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+        logger.exception("Error in load_documents_and_attributes")
         raise
 
 
@@ -543,24 +512,24 @@ def calculate_attribute_aggregate(doc, attribute_name, operation_type):
         The aggregated value, or None if calculation is not possible
     """
     # Check if document has attributes
-    if "attributes" not in doc or not doc["attributes"]:
+    attributes = doc.get("attributes")
+    if not attributes:
         logger.debug(f"Document {doc.get('id', 'unknown')} has no attributes")
         return None
-
-    attributes = doc["attributes"]
 
     # Check if the specific attribute exists
     if attribute_name not in attributes:
         logger.debug(f"Document {doc.get('id', 'unknown')} doesn't have attribute: {attribute_name}")
         return None
 
-    if not attributes[attribute_name]:
+    attribute_values = attributes.get(attribute_name)
+    if not attribute_values:
         logger.debug(f"Document {doc.get('id', 'unknown')} has empty attribute: {attribute_name}")
         return None
 
     # Extract the numeric values from the attribute spans
     # Each span is formatted as [start_pos, end_pos, value]
-    values = [span[2] for span in attributes[attribute_name] if len(span) >= 3 and span[2] is not None]
+    values = [span[2] for span in attribute_values if len(span) >= 3 and span[2] is not None]
 
     if not values:
         logger.debug(f"Document {doc.get('id', 'unknown')} has no valid values for attribute: {attribute_name}")
@@ -579,8 +548,7 @@ def calculate_attribute_aggregate(doc, attribute_name, operation_type):
             return None
         return sum(numeric_values) / len(numeric_values)
     # Add more aggregation types here as needed
-    else:
-        raise ValueError(f"Unknown operation type: {operation_type}")
+    raise ValueError(f"Unknown operation type: {operation_type}")
 
 
 def apply_simple_rule(doc, attribute_name, rule_type):
@@ -597,56 +565,35 @@ def apply_simple_rule(doc, attribute_name, rule_type):
         True if the document matches the rule, False otherwise
     """
     # Check if document has attributes
-    if "attributes" not in doc or not doc["attributes"]:
+    attributes = doc.get("attributes")
+    if not attributes:
         logger.debug(f"Document {doc.get('id', 'unknown')} has no attributes")
         return False
-
-    attributes = doc["attributes"]
 
     # Check if the specific attribute exists
     if attribute_name not in attributes:
         logger.debug(f"Document {doc.get('id', 'unknown')} doesn't have attribute: {attribute_name}")
         return False
 
-    if not attributes[attribute_name]:
+    attribute_values = attributes.get(attribute_name)
+    if not attribute_values:
         logger.debug(f"Document {doc.get('id', 'unknown')} has empty attribute: {attribute_name}")
         return False
 
     # Handle numeric comparison rules (e.g., 'avg>0.3')
-    if any(op in rule_type for op in [">", "<", ">=", "<=", "=="]):
+    comparison_op = next((op for op in (">=", "<=", "==", ">", "<") if op in rule_type), None)
+    if comparison_op is not None:
         # Parse the rule type into operation and comparison
-        operation_parts = rule_type.split(">")
-        if len(operation_parts) == 2:
-            operation_type, threshold = operation_parts
-            comparison_op = ">"
-        else:
-            operation_parts = rule_type.split("<")
-            if len(operation_parts) == 2:
-                operation_type, threshold = operation_parts
-                comparison_op = "<"
-            else:
-                operation_parts = rule_type.split(">=")
-                if len(operation_parts) == 2:
-                    operation_type, threshold = operation_parts
-                    comparison_op = ">="
-                else:
-                    operation_parts = rule_type.split("<=")
-                    if len(operation_parts) == 2:
-                        operation_type, threshold = operation_parts
-                        comparison_op = "<="
-                    else:
-                        operation_parts = rule_type.split("==")
-                        if len(operation_parts) == 2:
-                            operation_type, threshold = operation_parts
-                            comparison_op = "=="
-                        else:
-                            raise ValueError(f"Invalid rule type: {rule_type}")
+        operation_parts = rule_type.split(comparison_op, 1)
+        if len(operation_parts) != 2 or not all(operation_parts):
+            raise ValueError(f"Invalid rule type: {rule_type}")
+        operation_type, threshold = operation_parts
 
         # Convert threshold to float
         try:
             threshold = float(threshold)
-        except ValueError:
-            raise ValueError(f"Invalid threshold value: {threshold}")
+        except ValueError as e:
+            raise ValueError(f"Invalid threshold value: {threshold}") from e
 
         # Calculate the aggregate value
         aggregate_value = calculate_attribute_aggregate(doc, attribute_name, operation_type)
@@ -676,7 +623,7 @@ def apply_simple_rule(doc, attribute_name, rule_type):
     if rule_type in ["any", "all"]:
         # Extract the boolean values from the attribute spans
         # Each span is formatted as [start_pos, end_pos, value]
-        values = [span[2] for span in attributes[attribute_name] if len(span) >= 3 and span[2] is not None]
+        values = [span[2] for span in attribute_values if len(span) >= 3 and span[2] is not None]
 
         if not values:
             logger.debug(f"Document {doc.get('id', 'unknown')} has no valid values for attribute: {attribute_name}")
@@ -688,11 +635,11 @@ def apply_simple_rule(doc, attribute_name, rule_type):
             if result:
                 logger.debug(f"Document {doc.get('id', 'unknown')} matched rule '{attribute_name}:{rule_type}' (found True in {len(values)} values)")
             return result
-        elif rule_type == "all":
-            result = all(values)
-            if result:
-                logger.debug(f"Document {doc.get('id', 'unknown')} matched rule '{attribute_name}:{rule_type}' (all {len(values)} values are True)")
-            return result
+
+        result = all(values)
+        if result:
+            logger.debug(f"Document {doc.get('id', 'unknown')} matched rule '{attribute_name}:{rule_type}' (all {len(values)} values are True)")
+        return result
 
     raise ValueError(f"Unknown rule type: {rule_type}")
 
@@ -969,9 +916,7 @@ class Parser:
 
     def check(self, type):
         """Check if the current token is of the given type without advancing."""
-        if self.is_at_end():
-            return False
-        return self.peek().type == type
+        return not self.is_at_end() and self.peek().type == type
 
     def advance(self):
         """Advance to the next token and return the previous one."""
@@ -1029,18 +974,18 @@ def parse_rule(rule_string):
         if any(op in rule_type for op in [">", "<", ">=", "<=", "=="]):
             # This is a numeric comparison rule - we'll validate it in apply_simple_rule
             return attribute_name, rule_type
-        elif rule_type not in ["any", "all"]:
+        if rule_type not in ["any", "all"]:
             raise ValueError(f"Invalid rule type: {rule_type}. Supported types: 'any', 'all', or numeric comparison (e.g., 'avg>0.3')")
 
         return attribute_name, rule_type
-    else:
-        # Complex rule expression
-        try:
-            tokens = tokenize_expression(rule_string)
-            parser = Parser(tokens)
-            return parser.parse()
-        except Exception as e:
-            raise ValueError(f"Error parsing expression '{rule_string}': {e}")
+
+    # Complex rule expression
+    try:
+        tokens = tokenize_expression(rule_string)
+        parser = Parser(tokens)
+        return parser.parse()
+    except ValueError as e:
+        raise ValueError(f"Error parsing expression '{rule_string}': {e}") from e
 
 
 def is_complex_expression(rule):
@@ -1074,17 +1019,18 @@ def collect_rule_stats(expression, doc):
         A dictionary with rule statistics
     """
     rule_stats = defaultdict(int)
+    attributes = doc.get("attributes") or {}
 
     # Handle simple rule
     if not is_complex_expression(expression):
         attribute_name, rule_type = expression
+        entries = attributes.get(attribute_name)
         # Only process if document has this attribute
-        if "attributes" in doc and doc["attributes"] and attribute_name in doc["attributes"] and doc["attributes"][attribute_name]:
+        if entries:
             # The rule name will be the key for the statistics
             rule_name = f"{attribute_name}:{rule_type}"
 
             # Count entries in the attribute
-            entries = doc["attributes"][attribute_name]
             rule_stats[f"{rule_name}_total_entries"] += len(entries)
 
             # Count positive values
@@ -1102,12 +1048,12 @@ def collect_rule_stats(expression, doc):
     if isinstance(expression, RuleNode):
         # Base case: leaf node is a simple rule
         attribute_name, rule_type = expression.attribute_name, expression.rule_type
-        if "attributes" in doc and doc["attributes"] and attribute_name in doc["attributes"] and doc["attributes"][attribute_name]:
+        entries = attributes.get(attribute_name)
+        if entries:
             # The rule name will be the key for the statistics
             rule_name = f"{attribute_name}:{rule_type}"
 
             # Count entries in the attribute
-            entries = doc["attributes"][attribute_name]
             rule_stats[f"{rule_name}_total_entries"] += len(entries)
 
             # Count positive values
@@ -1156,10 +1102,10 @@ def get_expression_summary(expression):
     if isinstance(expression, RuleNode):
         return f"{expression.attribute_name}:{expression.rule_type}"
 
-    elif isinstance(expression, NotNode):
+    if isinstance(expression, NotNode):
         return f"not {get_expression_summary(expression.operand)}"
 
-    elif isinstance(expression, BinaryNode):
+    if isinstance(expression, BinaryNode):
         left_summary = get_expression_summary(expression.left)
         right_summary = get_expression_summary(expression.right)
         return f"({left_summary} {expression.operator.lower()} {right_summary})"
@@ -1306,10 +1252,11 @@ def collect_numeric_attributes(documents):
     numeric_attributes = defaultdict(list)
 
     for doc in documents:
-        if "attributes" not in doc or not doc["attributes"]:
+        attributes = doc.get("attributes")
+        if not attributes:
             continue
 
-        for attr_name, attr_values in doc["attributes"].items():
+        for attr_name, attr_values in attributes.items():
             if not attr_values:
                 continue
 
@@ -1322,8 +1269,7 @@ def collect_numeric_attributes(documents):
                         value = float(span[2])
                         numeric_attributes[attr_name].append(value)
                     except (ValueError, TypeError):
-                        # Not a numeric value, skip
-                        pass
+                        logger.debug("Skipping non-numeric value for attribute %s", attr_name)
 
     # Filter out attributes with no or too few numeric values
     return {k: v for k, v in numeric_attributes.items() if len(v) > 5}
@@ -1383,13 +1329,12 @@ def generate_cdf_plot(values, attribute_name):
         ax.set_ylim(0, 1.05)
 
         # Add some statistics to the plot
-        if len(values) > 0:
-            mean_val = np.mean(values)
-            median_val = np.median(values)
-            min_val = np.min(values)
-            max_val = np.max(values)
-            stats_text = f"n={len(values)}\nmin={min_val:.2f}\nmax={max_val:.2f}\nmean={mean_val:.2f}\nmedian={median_val:.2f}"
-            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
+        mean_val = np.mean(values)
+        median_val = np.median(values)
+        min_val = np.min(values)
+        max_val = np.max(values)
+        stats_text = f"n={len(values)}\nmin={min_val:.2f}\nmax={max_val:.2f}\nmean={mean_val:.2f}\nmedian={median_val:.2f}"
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
 
         # Make layout tight
         fig.tight_layout()
@@ -1402,8 +1347,8 @@ def generate_cdf_plot(values, attribute_name):
 
         return img_base64
 
-    except Exception as e:
-        logger.error(f"Error generating CDF plot for {attribute_name}: {e}")
+    except (ArithmeticError, OSError, RuntimeError, TypeError, ValueError):
+        logger.exception("Error generating CDF plot for %s", attribute_name)
         return None
 
 
@@ -1892,9 +1837,9 @@ def main():
     summary = f"""Reference Rule: {args.ref_rule}
 Hypothesis Rule: {args.hyp_rule}
 
-Total Documents: {overall_stats['total_docs']}
-Reference Matches: {overall_stats['ref_matches']}
-Hypothesis Matches: {overall_stats['hyp_matches']}
+Total Documents: {overall_stats["total_docs"]}
+Reference Matches: {overall_stats["ref_matches"]}
+Hypothesis Matches: {overall_stats["hyp_matches"]}
 
 True Positives: {tp}
 True Negatives: {tn}
@@ -2105,8 +2050,9 @@ IoU: {iou:.4f}
     logger.info("\n--- AVAILABLE ATTRIBUTES ---")
     all_attributes = set()
     for doc in all_docs:
-        if "attributes" in doc and doc["attributes"]:
-            all_attributes.update(doc["attributes"].keys())
+        attributes = doc.get("attributes")
+        if attributes:
+            all_attributes.update(attributes.keys())
 
     if all_attributes:
         logger.info(f"Found {len(all_attributes)} unique attributes:")

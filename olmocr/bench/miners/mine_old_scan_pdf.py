@@ -38,8 +38,8 @@ def process_jsonl(jsonl_file, output_dir="downloaded_images"):
 
             except json.JSONDecodeError:
                 print(f"Line {line_num}: Invalid JSON, skipping...")
-            except Exception as e:
-                print(f"Line {line_num}: Error processing - {str(e)}")
+            except (KeyError, OSError, TypeError, requests.RequestException) as e:
+                print(f"Line {line_num}: Error processing - {e}")
 
 
 def download_image(url, output_filename, output_dir):
@@ -92,13 +92,12 @@ def download_image(url, output_filename, output_dir):
         output_path = os.path.join(output_dir, output_filename)
 
         with open(output_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+            f.writelines(response.iter_content(chunk_size=8192))
 
         return output_path
 
-    except Exception as e:
-        print(f"Error downloading image: {str(e)}")
+    except (KeyError, OSError, TypeError, requests.RequestException) as e:
+        print(f"Error downloading image: {e}")
         return None
 
 

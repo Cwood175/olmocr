@@ -20,14 +20,15 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
 
 import pypdf
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 from bs4 import BeautifulSoup
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 from syntok.segmenter import process
 from tqdm import tqdm
@@ -66,7 +67,14 @@ def generate_html_from_image(client, image_base64):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_base64}},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_base64,
+                            },
+                        },
                         {
                             "type": "text",
                             "text": (
@@ -92,7 +100,14 @@ def generate_html_from_image(client, image_base64):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_base64}},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_base64,
+                            },
+                        },
                         {
                             "type": "text",
                             "text": (
@@ -119,12 +134,12 @@ def generate_html_from_image(client, image_base64):
                 initial_html += content.text
 
         return extract_code_block(initial_html)
-    except Exception as e:
+    except APIError as e:
         print(f"Error calling Claude API: {e}")
         return None
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> List[Dict]:
+def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> list[dict]:
     """
     Generate order tests from HTML content by splitting the main text into sentences and pairing them.
     Only order tests are generated.
@@ -205,8 +220,8 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
                     """
                     renderMathInElement(document.body, {
                         delimiters: [
-                            {left: '\\\$begin:math:text$', right: '\\\\\\$end:math:text$', display: false},
-                            {left: '\\\$begin:math:display$', right: '\\\\\\$end:math:display$', display: true}
+                            {left: '\\\\$begin:math:text$', right: '\\\\\\$end:math:text$', display: false},
+                            {left: '\\\\$begin:math:display$', right: '\\\\\\$end:math:display$', display: true}
                         ],
                         throwOnError: false
                     });
@@ -242,7 +257,7 @@ def process_pdf(pdf_info, args, client):
       - Optionally render the HTML to a PDF using Playwright.
       - Generate order tests from the HTML.
     """
-    local_pdf_path, index = pdf_info
+    local_pdf_path, _ = pdf_info
     original_pdf_name = os.path.basename(local_pdf_path)
     pdf_id = original_pdf_name
     temp_pdf_dir = os.path.join(args.temp_dir, f"{os.path.splitext(original_pdf_name)[0]}")
@@ -255,13 +270,13 @@ def process_pdf(pdf_info, args, client):
             print(f"PDF has no pages: {local_pdf_path}")
             return None
         page_num = random.randint(1, num_pages)
-    except Exception as e:
+    except (OSError, ValueError, pypdf.errors.PdfReadError) as e:
         print(f"Error reading {local_pdf_path}: {e}")
         return None
 
     try:
         image_base64 = render_pdf_to_base64png(local_pdf_path, page_num, target_longest_image_dim=2048)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
         print(f"Error rendering page {page_num} from {local_pdf_path}: {e}")
         return None
 
@@ -270,7 +285,7 @@ def process_pdf(pdf_info, args, client):
         if not html_content:
             print(f"Failed to generate HTML for {local_pdf_path}, page {page_num}")
             return None
-    except Exception as e:
+    except (APIError, OSError, ValueError) as e:
         print(f"Error generating HTML for {local_pdf_path}: {e}")
         return None
 
@@ -279,11 +294,14 @@ def process_pdf(pdf_info, args, client):
     os.makedirs(html_dir, exist_ok=True)
     os.makedirs(pdfs_dir, exist_ok=True)
 
-    html_path = os.path.join(html_dir, f"{os.path.splitext(original_pdf_name)[0]}_page{page_num}.html")
+    html_path = os.path.join(
+        html_dir,
+        f"{os.path.splitext(original_pdf_name)[0]}_page{page_num}.html",
+    )
     try:
         with open(html_path, "w") as f:
             f.write(html_content)
-    except Exception as e:
+    except OSError as e:
         print(f"Error saving HTML for {local_pdf_path}: {e}")
         return None
 
@@ -300,7 +318,7 @@ def process_pdf(pdf_info, args, client):
             else:
                 print(f"Failed to render as a single page PDF: {playwright_pdf_path}")
                 playwright_pdf_path = None
-        except Exception as e:
+        except (OSError, PlaywrightError, RuntimeError, ValueError) as e:
             print(f"Failed to render with Playwright: {e}")
             playwright_pdf_path = None
             render_success = False
@@ -314,8 +332,8 @@ def process_pdf(pdf_info, args, client):
 
     try:
         if os.path.exists(temp_pdf_dir):
-            subprocess.run(["rm", "-rf", temp_pdf_dir])
-    except Exception as e:
+            shutil.rmtree(temp_pdf_dir)
+    except OSError as e:
         print(f"Error cleaning up temp directory {temp_pdf_dir}: {e}")
 
     return {
@@ -330,14 +348,30 @@ def process_pdf(pdf_info, args, client):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert PDFs in a folder to HTML templates and render with Playwright (order tests only)")
+    parser = argparse.ArgumentParser(description=("Convert PDFs in a folder to HTML templates and render with Playwright (order tests only)"))
     parser.add_argument("--input_dir", required=True, help="Folder containing PDF files")
     parser.add_argument("--output_dir", required=True, help="Directory to store HTML and tests")
-    parser.add_argument("--temp_dir", default="/tmp/mine_tables", help="Directory for temporary files")
-    parser.add_argument("--max_tests", type=int, default=100, help="Maximum number of PDFs to process (randomly selected)")
+    parser.add_argument(
+        "--temp_dir",
+        default="/tmp/mine_tables",
+        help="Directory for temporary files",
+    )
+    parser.add_argument(
+        "--max_tests",
+        type=int,
+        default=100,
+        help="Maximum number of PDFs to process (randomly selected)",
+    )
     parser.add_argument("--parallel", type=int, default=1, help="Number of parallel threads to use")
-    parser.add_argument("--api_key", help="Claude API key (or set ANTHROPIC_API_KEY environment variable)")
-    parser.add_argument("--skip_playwright", action="store_true", help="Skip Playwright PDF rendering")
+    parser.add_argument(
+        "--api_key",
+        help="Claude API key (or set ANTHROPIC_API_KEY environment variable)",
+    )
+    parser.add_argument(
+        "--skip_playwright",
+        action="store_true",
+        help="Skip Playwright PDF rendering",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
 
@@ -352,7 +386,7 @@ def main():
     client = Anthropic(api_key=api_key)
 
     pdf_paths = []
-    for root, dirs, files in os.walk(args.input_dir):
+    for root, _, files in os.walk(args.input_dir):
         for file in files:
             if file.lower().endswith(".pdf"):
                 pdf_paths.append(os.path.join(root, file))
@@ -362,7 +396,8 @@ def main():
     pdf_paths = pdf_paths[: args.max_tests]
 
     synthetic_json_path = os.path.join(args.output_dir, "synthetic.jsonl")
-    open(synthetic_json_path, "w").close()
+    with open(synthetic_json_path, "w"):
+        pass
 
     test_counter = 0
     test_types = {"order": 0}
@@ -374,22 +409,34 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.parallel) as executor:
         futures = {executor.submit(process_pdf, (pdf_path, i), args, client): pdf_path for i, pdf_path in enumerate(pdf_paths)}
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Processing PDFs"):
+        for future in tqdm(
+            concurrent.futures.as_completed(futures),
+            total=len(futures),
+            desc="Processing PDFs",
+        ):
             pdf_path = futures[future]
             try:
                 result = future.result()
                 if result and result.get("tests"):
                     results.append(result)
+                    serialized_tests = "".join(json.dumps(test) + "\n" for test in result["tests"])
                     with file_lock:
                         with open(synthetic_json_path, "a") as f:
-                            for test in result["tests"]:
-                                f.write(json.dumps(test) + "\n")
+                            f.write(serialized_tests)
                         test_counter += len(result["tests"])
                         for test in result["tests"]:
                             if test.get("type") == "order":
                                 test_types["order"] += 1
                         print(f"Added {len(result['tests'])} tests from {result['pdf_id']}, total: {test_counter}")
-            except Exception as e:
+            except (
+                APIError,
+                OSError,
+                PlaywrightError,
+                RuntimeError,
+                ValueError,
+                pypdf.errors.PdfReadError,
+                subprocess.SubprocessError,
+            ) as e:
                 print(f"Error processing {pdf_path}: {e}")
 
     print(f"Generated {len(results)} HTML templates")

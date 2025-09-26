@@ -2,24 +2,14 @@ import base64
 import json
 import logging
 import re
+import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, fields
 from io import BytesIO
 from os import PathLike
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    TypeAlias,
-    Union,
-    get_args,
-    get_origin,
-)
+from typing import Any, TypeAlias, Union, get_args, get_origin
 
 import numpy as np
 import yaml
@@ -33,13 +23,13 @@ from olmocr.prompts.anchor import get_anchor_text
 from olmocr.prompts.prompts import PageResponse, build_finetuning_prompt
 
 # Type alias for samples
-Sample: TypeAlias = Dict[str, Any]
+Sample: TypeAlias = dict[str, Any]
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
-def validate_pdf_pair(md_path: Path) -> Tuple[Optional[Dict[str, Path]], Optional[Tuple[Path, str]]]:
+def validate_pdf_pair(md_path: Path) -> tuple[dict[str, Path] | None, tuple[Path, str] | None]:
     """Validate a single markdown-PDF pair.
 
     Args:
@@ -75,8 +65,8 @@ def validate_pdf_pair(md_path: Path) -> Tuple[Optional[Dict[str, Path]], Optiona
 
                 return {"markdown_path": md_path, "pdf_path": pdf_path}, None
 
-            except Exception as e:
-                return None, (pdf_path, f"Failed to load: {str(e)}")
+            except Exception as e:  # noqa: BLE001 - validation must report malformed inputs
+                return None, (pdf_path, f"Failed to load: {e!s}")
 
     return None, None
 
@@ -94,7 +84,7 @@ class PipelineStep(ABC):
 class BaseMarkdownPDFDataset(Dataset):
     """Base dataset class that loads and verifies markdown-PDF pairs."""
 
-    def __init__(self, root_dir: str | PathLike, pipeline_steps: Optional[List[PipelineStep]] = None):
+    def __init__(self, root_dir: str | PathLike, pipeline_steps: list[PipelineStep] | None = None):
         """
         Initialize the dataset by finding all markdown files with corresponding PDFs.
 
@@ -134,9 +124,9 @@ class BaseMarkdownPDFDataset(Dataset):
                         elif invalid_pdf_info:
                             invalid_pdfs.append(invalid_pdf_info)
 
-                    except Exception as e:
-                        logger.error(f"Error processing {md_path}: {str(e)}")
-                        invalid_pdfs.append((md_path.with_suffix(".pdf"), f"Processing error: {str(e)}"))
+                    except Exception as e:  # noqa: BLE001 - worker failures must not stop validation
+                        logger.error(f"Error processing {md_path}: {e!s}")
+                        invalid_pdfs.append((md_path.with_suffix(".pdf"), f"Processing error: {e!s}"))
 
                     pbar.update(1)
 
@@ -155,7 +145,7 @@ class BaseMarkdownPDFDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Optional[Dict[str, Any]]:
+    def __getitem__(self, idx: int) -> dict[str, Any] | None:
         """
         Get a single sample from the dataset.
 
@@ -183,15 +173,15 @@ class BaseMarkdownPDFDataset(Dataset):
 class FrontMatterParser(PipelineStep):
     """Pipeline step that parses YAML front matter from markdown content."""
 
-    front_matter_class: Optional[Type] = None
+    front_matter_class: type | None = None
 
-    def _is_optional_str(self, field_type: Type) -> bool:
+    def _is_optional_str(self, field_type: type) -> bool:
         """Check if a type is Optional[str]."""
         origin = get_origin(field_type)
         args = get_args(field_type)
         return origin is Union and type(None) in args and str in args
 
-    def _extract_front_matter_and_text(self, markdown_content: str) -> tuple[Dict[str, Any], str]:
+    def _extract_front_matter_and_text(self, markdown_content: str) -> tuple[dict[str, Any], str]:
         """Extract YAML front matter and text from markdown content."""
         if markdown_content.startswith("---\n"):
             try:
@@ -209,7 +199,7 @@ class FrontMatterParser(PipelineStep):
 
         return {}, markdown_content.strip()
 
-    def _parse_front_matter(self, front_matter_dict: Dict[str, Any], text: str) -> Any:
+    def _parse_front_matter(self, front_matter_dict: dict[str, Any], text: str) -> Any:
         """Parse front matter dictionary into dataclass instance if front_matter_class is specified."""
         if not self.front_matter_class:
             return front_matter_dict
@@ -268,8 +258,9 @@ class FrontMatterParser(PipelineStep):
         # Parse front matter to dataclass if specified
         try:
             page_data = self._parse_front_matter(front_matter, text)
-        except Exception as e:
-            raise ValueError(f"Error parsing front matter for {sample['markdown_path']}: {e}")
+        except (TypeError, ValueError) as e:
+            message = f"Error parsing front matter for {sample['markdown_path']}: {e}"
+            raise ValueError(message) from e
 
         # Only add page_data field
         sample["page_data"] = page_data
@@ -352,8 +343,7 @@ class FrontMatterOutputFormat(PipelineStep):
         page_data = sample["page_data"]
         assert type(page_data) is PageResponse
 
-        sample["response"] = (
-            f"""---
+        sample["response"] = f"""---
 primary_language: {page_data.primary_language}
 is_rotation_valid: {page_data.is_rotation_valid}
 rotation_correction: {page_data.rotation_correction}
@@ -362,7 +352,6 @@ is_diagram: {page_data.is_diagram}
 ---
 {page_data.natural_text if page_data.natural_text is not None and len(page_data.natural_text.strip()) > 0 else ""}
 """.strip()
-        )
 
         return sample
 
@@ -440,7 +429,7 @@ class RotationAugmentation(PipelineStep):
 
     probability: float = 0.5  # Probability of applying rotation
 
-    def __call__(self, sample: Sample) -> Optional[Sample]:
+    def __call__(self, sample: Sample) -> Sample | None:
         """Randomly rotate image and update rotation metadata."""
         # Only proceed with given probability
         if np.random.random() > self.probability:
@@ -501,7 +490,7 @@ class RotationAugmentation(PipelineStep):
 class FilterOutRotatedDocuments(PipelineStep):
     """Pipeline step that filters out documents with rotation issues."""
 
-    def __call__(self, sample: Sample) -> Optional[Sample]:
+    def __call__(self, sample: Sample) -> Sample | None:
         """Filter out samples where rotation is invalid or rotation correction is needed."""
         # Check if page_data exists
         if "page_data" not in sample:
@@ -526,7 +515,7 @@ class AugraphyBasicAugmentations(PipelineStep):
 
     probability: float = 0.5  # Overall probability of applying any augmentation
 
-    def __call__(self, sample: Sample) -> Optional[Sample]:
+    def __call__(self, sample: Sample) -> Sample | None:
         """Apply augraphy augmentations to the image in the sample."""
         # Check that the image data exists
         if "image" not in sample:
@@ -593,7 +582,16 @@ class AugraphyBasicAugmentations(PipelineStep):
             )
 
         ink_phase = [
-            OneOf([InkBleed(p=1), LowInkRandomLines(p=1), LowInkPeriodicLines(p=1), InkMottling(p=1), InkShifter(p=1, text_shift_scale_range=(10, 15))], p=0.2),
+            OneOf(
+                [
+                    InkBleed(p=1),
+                    LowInkRandomLines(p=1),
+                    LowInkPeriodicLines(p=1),
+                    InkMottling(p=1),
+                    InkShifter(p=1, text_shift_scale_range=(10, 15)),
+                ],
+                p=0.2,
+            ),
         ]
 
         paper_phase = [OneOf([Brightness(p=0.2), Jpeg(p=1)])]
@@ -602,7 +600,11 @@ class AugraphyBasicAugmentations(PipelineStep):
             # Empty on purpose or else augmentations are too strong
         ]
 
-        augmentation_pipeline = AugraphyPipeline(ink_phase=ink_phase, paper_phase=paper_phase, post_phase=post_phase)
+        augmentation_pipeline = AugraphyPipeline(
+            ink_phase=ink_phase,
+            paper_phase=paper_phase,
+            post_phase=post_phase,
+        )
 
         # Apply augmentations
         augmented_image_bgr = augmentation_pipeline(image_bgr)
@@ -729,7 +731,7 @@ class Tokenizer(PipelineStep):
 class RandomTokenFlipper(PipelineStep):
     """Randomly flips tokens in the output (non-masked) portion and masks their labels."""
 
-    valid_token_ids: List[int]  # List of valid token IDs to substitute with
+    valid_token_ids: list[int]  # List of valid token IDs to substitute with
     token_flip_rate: float = 1e-4
     masking_index: int = -100
 
@@ -847,7 +849,7 @@ if __name__ == "__main__":
         config.validate()
     except ValueError as e:
         print(f"Configuration validation failed: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Load processor for tokenization
     print(f"\nLoading processor: {config.model.name}")
@@ -865,7 +867,7 @@ if __name__ == "__main__":
 
     if args.dataset_index >= len(dataset_configs):
         print(f"Error: Dataset index {args.dataset_index} out of range. Only {len(dataset_configs)} {dataset_name} datasets available.")
-        exit(1)
+        sys.exit(1)
 
     dataset_cfg = dataset_configs[args.dataset_index]
     root_dir = dataset_cfg["root_dir"]
@@ -890,7 +892,7 @@ if __name__ == "__main__":
         # Check if sample index is valid
         if args.sample_index >= len(dataset):
             print(f"\nError: Sample index {args.sample_index} out of range. Only {len(dataset)} samples available.")
-            exit(1)
+            sys.exit(1)
 
         # Get the requested sample
         print(f"\n=== Displaying sample {args.sample_index} ===")
@@ -940,8 +942,8 @@ if __name__ == "__main__":
             masked_count = np.sum(labels == -100)
             total_count = len(labels)
             print(f"  Total tokens: {total_count}")
-            print(f"  Masked tokens: {masked_count} ({masked_count/total_count*100:.1f}%)")
-            print(f"  Unmasked tokens: {total_count - masked_count} ({(total_count - masked_count)/total_count*100:.1f}%)")
+            print(f"  Masked tokens: {masked_count} ({masked_count / total_count * 100:.1f}%)")
+            print(f"  Unmasked tokens: {total_count - masked_count} ({(total_count - masked_count) / total_count * 100:.1f}%)")
 
             # Find the transition point
             transition_idx = None
@@ -974,7 +976,7 @@ if __name__ == "__main__":
                 elif label != -100 and i > 0 and labels[i - 1] == -100:
                     marker = " <-- response begins"
 
-                print(f"[{i:4d}] {token_repr:20s} | {str(label):6s} | {token_id:6d}{marker}")
+                print(f"[{i:4d}] {token_repr:20s} | {label!s:6s} | {token_id:6d}{marker}")
 
             # Calculate and show token statistics after the table
             print(f"\nToken statistics:")
@@ -1014,7 +1016,7 @@ if __name__ == "__main__":
                         total_length = len(labels)
                         return (idx, total_length, None)
                     return (idx, None, "No labels in sample")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - sample processing errors are returned
                     return (idx, None, str(e))
 
             # Process samples in parallel with progress bar
@@ -1045,7 +1047,7 @@ if __name__ == "__main__":
                                 if sequence_length > max_sequence_length:
                                     max_sequence_length = sequence_length
                                     max_sequence_sample_idx = idx
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001 - worker failures are collected
                             errors.append((idx, f"Future error: {e}"))
                         pbar.update(1)
 

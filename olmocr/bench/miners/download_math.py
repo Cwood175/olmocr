@@ -1,10 +1,10 @@
 # This script goes to
+#!/usr/bin/env python3
 # https://arxiv.org/list/math/recent?skip=0&show=2000
 # and downloads all the source PDFs, as well as latex equivalents, and puts them together into
 # Searching for:
 # <a href="/pdf/2503.08675" title="Download PDF" id="pdf-2503.08675" aria-labelledby="pdf-2503.08675">pdf</a>
 # a math_data folder
-#!/usr/bin/env python3
 import argparse
 import io
 import os

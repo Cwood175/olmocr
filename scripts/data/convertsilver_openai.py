@@ -41,7 +41,7 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
                 try:
                     obj = json.loads(line)
                 except json.JSONDecodeError as e:
-                    logging.error(f"JSON decode error in file {input_file} at line {line_number}: {e}")
+                    logger.error("JSON decode error in file %s at line %d: %s", input_file, line_number, e)
                     error_count += 1
                     continue
 
@@ -74,10 +74,9 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
                 else:
                     error_count += 1
 
-        logging.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
-    except Exception as e:
-        logging.exception(e)
-        logging.error(f"Failed to process file {input_file}: {e}")
+        logger.info("Processed '%s': %d records transformed, %d errors.", input_file, processed_count, error_count)
+    except OSError:
+        logger.exception("Failed to process file %s", input_file)
 
 
 def construct_output_file_path(input_file_path, input_dir, output_dir):
@@ -182,10 +181,10 @@ def main():
     input_files = list_input_files(input_dir)
 
     if not input_files:
-        logging.warning(f"No JSONL files found in '{input_dir}'. Exiting.")
+        logger.warning("No JSONL files found in '%s'. Exiting.", input_dir)
         sys.exit(0)
 
-    logging.info(f"Found {len(input_files)} JSONL files to process.")
+    logger.info("Found %d JSONL files to process.", len(input_files))
 
     # Prepare tasks for parallel processing
     tasks = []
@@ -201,10 +200,10 @@ def main():
             input_file = future_to_file[future]
             try:
                 future.result()
-            except Exception as exc:
-                logging.error(f"File {input_file} generated an exception: {exc}")
+            except (IndexError, KeyError, TypeError, ValueError):
+                logger.exception("File %s generated an exception", input_file)
 
-    logging.info("All files have been processed.")
+    logger.info("All files have been processed.")
 
 
 if __name__ == "__main__":

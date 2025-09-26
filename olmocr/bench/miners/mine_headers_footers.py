@@ -18,12 +18,13 @@ import base64
 import json
 import os
 import random
-from typing import List, Optional
+import subprocess
 
 import boto3
 import pypdf
+from botocore.exceptions import BotoCoreError, ClientError
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from tqdm import tqdm
 
 from olmocr.bench.tests import TextPresenceTest, save_tests
@@ -57,8 +58,8 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
-        print(f"Error downloading {s3_path}: {str(e)}")
+    except (IndexError, OSError, BotoCoreError, ClientError) as e:
+        print(f"Error downloading {s3_path}: {e!s}")
         return False
 
 
@@ -95,12 +96,12 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except (IndexError, OSError, ValueError, pypdf.errors.PyPdfError) as e:
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         raise
 
 
-def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Optional[List[str]]:
+def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> list[str] | None:
     """
     Use Gemini to detect headers and footers in a rendered PDF page.
 
@@ -110,7 +111,7 @@ def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Option
         api_key: Gemini API key
 
     Returns:
-        Optional[List[str]]: List of detected header/footer texts, or None if detection failed
+        list[str] | None: List of detected header/footer texts, or None if detection failed
     """
     client = genai.Client(
         api_key=os.environ.get("GEMINI_API_KEY"),
@@ -120,8 +121,8 @@ def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Option
     # Render the PDF page as an image
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)  # render_pdf_to_base64png is 1-indexed
-    except Exception as e:
-        print(f"Error rendering PDF page: {str(e)}")
+    except (OSError, ValueError, pypdf.errors.PyPdfError, subprocess.SubprocessError) as e:
+        print(f"Error rendering PDF page: {e!s}")
         return None
 
     image_part = types.Part(inline_data=types.Blob(mime_type="image/png", data=base64.b64decode(image_base64)))
@@ -173,7 +174,7 @@ def detect_headers_footers(pdf_path: str, page_num: int, api_key: str) -> Option
     return data.get("headers", []) + data.get("footers", [])
 
 
-def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, tests: List[TextPresenceTest]) -> None:
+def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, tests: list[TextPresenceTest]) -> None:
     """
     Process a single PDF from S3.
 
@@ -223,7 +224,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, test
 
             # Extract the page and save to output dir
             pdf_basename = os.path.splitext(pdf_filename)[0]
-            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num+1}.pdf")
+            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num + 1}.pdf")
 
             extract_page_from_pdf(local_pdf_path, output_pdf_path, page_num)
 
@@ -231,10 +232,10 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, test
 
             # Create tests for each header/footer text
             for i, text in enumerate(header_footer_text):
-                test_id = f"{pdf_basename}_pg{page_num+1}_header_{i:02d}"
+                test_id = f"{pdf_basename}_pg{page_num + 1}_header_{i:02d}"
                 test = TextPresenceTest(
                     id=test_id,
-                    pdf=f"{pdf_basename}_pg{page_num+1}.pdf",
+                    pdf=f"{pdf_basename}_pg{page_num + 1}.pdf",
                     page=1,  # The extracted PDF has only one page
                     type="absent",
                     text=text,
@@ -242,11 +243,11 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, test
                 )
                 tests.append(test)
 
-            print(f"Processed {pdf_filename} page {page_num+1}, found {len(header_footer_text)} headers/footers")
+            print(f"Processed {pdf_filename} page {page_num + 1}, found {len(header_footer_text)} headers/footers")
             return
 
-    except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
+    except (AssertionError, IndexError, OSError, TypeError, ValueError, pypdf.errors.PyPdfError, subprocess.SubprocessError, errors.APIError) as e:
+        print(f"Error processing {pdf_filename}: {e!s}")
     finally:
         # Clean up temporary file
         if os.path.exists(local_pdf_path):

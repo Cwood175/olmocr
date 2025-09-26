@@ -20,7 +20,6 @@ import concurrent.futures
 import os
 import random
 import threading
-from typing import Dict, List, Optional, Tuple
 
 import boto3
 import numpy as np
@@ -65,8 +64,8 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
-        print(f"Error downloading {s3_path}: {str(e)}")
+    except (OSError, ValueError, IndexError) as e:
+        print(f"Error downloading {s3_path}: {e!s}")
         return False
 
 
@@ -103,12 +102,12 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except (OSError, ValueError, IndexError) as e:
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         raise
 
 
-def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[List[np.ndarray], str]]:
+def detect_tables(pdf_path: str, page_num: int, api_key: str) -> tuple[list[np.ndarray], str] | None:
     """
     Use Gemini to detect tables in a rendered PDF page.
 
@@ -131,8 +130,8 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
     # Render the PDF page as an image (render_pdf_to_base64png is 1-indexed)
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)
-    except Exception as e:
-        print(f"Error rendering PDF page: {str(e)}")
+    except (OSError, ValueError, IndexError) as e:
+        print(f"Error rendering PDF page: {e!s}")
         return None
 
     image_part = types.Part(inline_data=types.Blob(mime_type="image/png", data=base64.b64decode(image_base64)))
@@ -197,12 +196,12 @@ def detect_tables(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[
         # Return both the parsed tables and the rendered image (base64 string)
         return (parsed_tables, image_base64) if parsed_tables else None
 
-    except Exception as e:
-        print(f"Error detecting tables in {pdf_path} page {page_num}: {str(e)}")
+    except (OSError, ValueError, IndexError, RuntimeError) as e:
+        print(f"Error detecting tables in {pdf_path} page {page_num}: {e!s}")
         return None
 
 
-def generate_table_tests(tables: List[np.ndarray], pdf_image: str, api_key: str, max_tests_per_table: int = 3) -> List[Dict]:
+def generate_table_tests(tables: list[np.ndarray], pdf_image: str, api_key: str, max_tests_per_table: int = 3) -> list[dict]:
     """
     Generate table tests from the detected tables by making a second Gemini request for each candidate cell.
 
@@ -286,13 +285,13 @@ def generate_table_tests(tables: List[np.ndarray], pdf_image: str, api_key: str,
                     test_data = {"cell": cell_value, relationship: answer_text}
                     tests.append(test_data)
                     tests_for_this_table += 1
-            except Exception as e:
-                print(f"Error querying Gemini for cell '{cell_value}' and relationship '{relationship}': {str(e)}")
+            except (OSError, ValueError, IndexError, RuntimeError) as e:
+                print(f"Error querying Gemini for cell '{cell_value}' and relationship '{relationship}': {e!s}")
 
     return tests
 
 
-def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> List[TableTest]:
+def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> list[TableTest]:
     """
     Process a single PDF from S3.
 
@@ -344,7 +343,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> L
             # Detect tables and obtain the rendered image for this page
             result = detect_tables(local_pdf_path, page_num, api_key)
             if not result:
-                print(f"No tables detected in {pdf_filename} page {page_num+1}")
+                print(f"No tables detected in {pdf_filename} page {page_num + 1}")
                 continue
 
             tables, image_base64 = result
@@ -353,21 +352,21 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> L
             table_tests_data = generate_table_tests(tables, image_base64, api_key, max_tests_per_table=5)
 
             if not table_tests_data:
-                print(f"Could not generate valid tests for tables in {pdf_filename} page {page_num+1}")
+                print(f"Could not generate valid tests for tables in {pdf_filename} page {page_num + 1}")
                 continue
 
             # Extract the page and save to output dir
             pdf_basename = os.path.splitext(pdf_filename)[0]
-            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num+1}.pdf")
+            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num + 1}.pdf")
             with file_lock:  # Use lock when writing to shared output directory
                 extract_page_from_pdf(local_pdf_path, output_pdf_path, page_num)
 
             # Create table tests
             for i, test_data in enumerate(table_tests_data):
-                test_id = f"{pdf_basename}_pg{page_num+1}_table_{i:02d}"
+                test_id = f"{pdf_basename}_pg{page_num + 1}_table_{i:02d}"
                 test = TableTest(
                     id=test_id,
-                    pdf=f"{pdf_basename}_pg{page_num+1}.pdf",
+                    pdf=f"{pdf_basename}_pg{page_num + 1}.pdf",
                     page=1,  # The extracted PDF has only one page
                     type="table",
                     cell=test_data["cell"],
@@ -381,13 +380,13 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> L
                 )
                 local_tests.append(test)
 
-            print(f"Processed {pdf_filename} page {page_num+1}, found {len(tables)} tables, created {len(table_tests_data)} tests")
+            print(f"Processed {pdf_filename} page {page_num + 1}, found {len(tables)} tables, created {len(table_tests_data)} tests")
             break  # Process only one page per PDF
 
         return local_tests
 
-    except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
+    except (OSError, ValueError, IndexError, RuntimeError) as e:
+        print(f"Error processing {pdf_filename}: {e!s}")
         return []
     finally:
         # Cleanup
@@ -395,7 +394,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> L
             os.remove(local_pdf_path)
 
 
-def process_pdfs_parallel(s3_paths: List[str], temp_dir: str, output_dir: str, api_key: str, max_tests: int, num_workers: int):
+def process_pdfs_parallel(s3_paths: list[str], temp_dir: str, output_dir: str, api_key: str, max_tests: int, num_workers: int):
     """
     Process PDFs in parallel using a thread pool.
 
@@ -438,8 +437,8 @@ def process_pdfs_parallel(s3_paths: List[str], temp_dir: str, output_dir: str, a
                                 f.cancel()
                         break
 
-            except Exception as e:
-                print(f"Task for {os.path.basename(s3_path)} generated an exception: {e}")
+            except (concurrent.futures.CancelledError, OSError, ValueError, RuntimeError) as e:
+                print(f"Task for {os.path.basename(s3_path)} generated an exception: {e!s}")
 
 
 def main():

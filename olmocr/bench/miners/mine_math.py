@@ -23,19 +23,15 @@ import os
 import random
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
 
 import numba
 import numpy as np
 from tqdm import tqdm
 
 from olmocr.bench.katex.render import render_equation
-from olmocr.bench.tests import (
-    MathTest,  # Assumes MathTest is JSON serializable or has __dict__
-)
-from olmocr.bench.tests import (
-    save_tests,  # Original saving function (not used for incremental save)
-)
+from olmocr.bench.tests import MathTest, save_tests
+
+logger = logging.getLogger(__name__)
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -66,9 +62,12 @@ def extract_tex_content(tex_file: str) -> str:
         try:
             with open(tex_file, "r", encoding="latin-1") as f:
                 return f.read()
-        except Exception as e:
-            logging.error("Error reading %s: %s", tex_file, e)
+        except (OSError, UnicodeError) as e:
+            logger.error("Error reading %s: %s", tex_file, e)
             return ""
+    except OSError as e:
+        logger.error("Error reading %s: %s", tex_file, e)
+        return ""
 
 
 def extract_candidate_content(candidate_file: str) -> str:
@@ -76,12 +75,12 @@ def extract_candidate_content(candidate_file: str) -> str:
     try:
         with open(candidate_file, "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
-        logging.error("Error reading %s: %s", candidate_file, e)
+    except (OSError, UnicodeError) as e:
+        logger.error("Error reading %s: %s", candidate_file, e)
         return ""
 
 
-def extract_math_from_tex(tex_content: str) -> List[Tuple[str, str]]:
+def extract_math_from_tex(tex_content: str) -> list[tuple[str, str]]:
     """
     Extract math equations from TeX content.
     Returns list of tuples (equation_type, equation_content)
@@ -127,7 +126,9 @@ def compute_dp(candidate_arr, text_arr):
         for j in range(1, n + 1):
             cost = 0 if candidate_arr[i - 1] == text_arr[j - 1] else 1
             dp[i, j] = min(
-                dp[i - 1, j - 1] + cost, dp[i - 1, j] + 1, dp[i, j - 1] + 1  # substitution or match  # deletion (from candidate)
+                dp[i - 1, j - 1] + cost,
+                dp[i - 1, j] + 1,
+                dp[i, j - 1] + 1,  # substitution or match  # deletion (from candidate)
             )  # insertion (in candidate)
     return dp
 
@@ -159,7 +160,7 @@ def backtrack(dp, candidate_arr, text_arr, m, best_end):
     return j  # start index in text
 
 
-def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: float) -> Optional[str]:
+def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: float) -> str | None:
     """
     Find the substring of tex_content that most closely matches candidate_text using
     dynamic programming accelerated by numba. Returns the matching substring if its
@@ -186,14 +187,14 @@ def find_matching_content(candidate_text: str, tex_content: str, sim_threshold: 
     best_end, min_distance = find_best_end(dp, m, n)
     similarity = (m - min_distance) / m
 
-    logging.info("Similarity: %.3f", similarity)
+    logger.info("Similarity: %.3f", similarity)
     if similarity < sim_threshold:
         return None
     start_index = backtrack(dp, candidate_arr, text_arr, m, best_end)
     return tex_norm[start_index:best_end]
 
 
-def parse_candidate_filename(filename: str) -> Optional[Tuple[str, int]]:
+def parse_candidate_filename(filename: str) -> tuple[str, int] | None:
     """
     Parse candidate filename in the format: [tex file basename]_pg[pagenum]_repeat1.md
     Returns tuple (tex_basename, page_num) or None if the format doesn't match.
@@ -216,41 +217,41 @@ def validate_equation(equation: str) -> bool:
     return rendered is not None
 
 
-def process_candidate_file(candidate_file: str, pdfs_folder: str, sim_threshold: float) -> List[MathTest]:
+def process_candidate_file(candidate_file: str, pdfs_folder: str, sim_threshold: float) -> list[MathTest]:
     """
     Process a single candidate file.
     Returns a list of MathTest objects extracted from the corresponding TeX file.
     """
-    logging.info("Processing %s", candidate_file)
+    logger.info("Processing %s", candidate_file)
     tests = []
     parse_result = parse_candidate_filename(candidate_file)
     if not parse_result:
-        logging.error("Filename %s does not match expected format.", candidate_file)
+        logger.error("Filename %s does not match expected format.", candidate_file)
         return tests
 
     tex_basename, page_num = parse_result
     tex_file_path = os.path.join(pdfs_folder, f"{tex_basename}.tex")
 
     if not os.path.exists(tex_file_path):
-        logging.error("TeX file %s not found for candidate %s.", tex_file_path, candidate_file)
+        logger.error("TeX file %s not found for candidate %s.", tex_file_path, candidate_file)
         return tests
 
     candidate_text = extract_candidate_content(candidate_file)
     tex_content = extract_tex_content(tex_file_path)
     if not tex_content or not candidate_text or len(tex_content.strip()) < 100 or len(candidate_text.strip()) < 100:
-        logging.error("No content extracted from %s", tex_file_path)
+        logger.error("No content extracted from %s", tex_file_path)
         return tests
 
     matching_tex = find_matching_content(candidate_text, tex_content, sim_threshold)
     if not matching_tex:
-        logging.warning("No matching TeX content found in %s for candidate %s", tex_file_path, candidate_file)
+        logger.warning("No matching TeX content found in %s for candidate %s", tex_file_path, candidate_file)
         return tests
 
-    logging.debug("Matching TeX content: %s", matching_tex)
+    logger.debug("Matching TeX content: %s", matching_tex)
 
     math_equations = extract_math_from_tex(matching_tex)
     if not math_equations:
-        logging.warning("No math equations found in matching content for candidate %s", candidate_file)
+        logger.warning("No math equations found in matching content for candidate %s", candidate_file)
         return tests
 
     # Filter out equations that are too short, remove duplicates, and shuffle
@@ -275,7 +276,7 @@ def process_candidate_file(candidate_file: str, pdfs_folder: str, sim_threshold:
     return tests
 
 
-def process_tex_file_group(tex_basename: str, candidate_files: List[str], pdfs_folder: str, sim_threshold: float, max_pages: int) -> List[MathTest]:
+def process_tex_file_group(tex_basename: str, candidate_files: list[str], pdfs_folder: str, sim_threshold: float, max_pages: int) -> list[MathTest]:
     """
     For a given TeX file, group candidate files by page, randomly shuffle the pages,
     and process them one-by-one. Stop once max_pages (pages with valid equations) have
@@ -285,7 +286,7 @@ def process_tex_file_group(tex_basename: str, candidate_files: List[str], pdfs_f
     valid_pages = set()
 
     # Group candidate files by page number.
-    page_dict: Dict[int, List[str]] = {}
+    page_dict: dict[int, list[str]] = {}
     for candidate_file in candidate_files:
         parse_result = parse_candidate_filename(candidate_file)
         if not parse_result:
@@ -330,17 +331,17 @@ def main():
     pdfs_folder = os.path.join(args.math_data, "pdfs")
 
     candidate_files = glob.glob(os.path.join(candidate_folder, "*.md"))
-    logging.info("Found %d candidate files.", len(candidate_files))
+    logger.info("Found %d candidate files.", len(candidate_files))
 
     # Group candidate files by TeX basename.
-    tex_groups: Dict[str, List[str]] = {}
+    tex_groups: dict[str, list[str]] = {}
     for candidate_file in candidate_files:
         parse_result = parse_candidate_filename(candidate_file)
         if not parse_result:
             continue
         tex_basename, _ = parse_result
         tex_groups.setdefault(tex_basename, []).append(candidate_file)
-    logging.info("Found %d TeX groups.", len(tex_groups))
+    logger.info("Found %d TeX groups.", len(tex_groups))
 
     # Remove output file if it exists to start fresh
     output_file = os.path.join(args.math_data, "math_tests.jsonl")
@@ -362,11 +363,11 @@ def main():
                 all_math_tests.extend(tests)
                 # Incrementally save tests as each TeX group finishes processing.
                 save_tests(all_math_tests, output_file)
-            except Exception as e:
-                logging.error("Error processing TeX group %s: %s", tex_basename, e)
+            except (OSError, RuntimeError, TypeError, ValueError) as e:
+                logger.error("Error processing TeX group %s: %s", tex_basename, e)
 
-    logging.info("Found %d valid math equations from %d TeX groups.", len(all_math_tests), len(tex_groups))
-    logging.info("Results incrementally saved to %s", output_file)
+    logger.info("Found %d valid math equations from %d TeX groups.", len(all_math_tests), len(tex_groups))
+    logger.info("Results incrementally saved to %s", output_file)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@ import json
 import random
 import time
 from io import BytesIO
-from typing import List, Optional, Tuple
 
 import torch
 import uvloop
@@ -32,8 +31,8 @@ def sample_requests(
     dataset_path: str,
     num_requests: int,
     tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int],
-) -> List[Tuple[str, int, int]]:
+    fixed_output_len: int | None,
+) -> list[tuple[str, int, int]]:
     if fixed_output_len is not None and fixed_output_len < 4:
         raise ValueError("output_len too small")
 
@@ -81,7 +80,7 @@ def sample_mm_requests_qwen2vl(
     processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
 
     with open(dataset_path, "r") as f:
-        json_data = [json.loads(line) for line in f.readlines() if len(line.strip()) > 0]
+        json_data = [json.loads(line) for line in f if len(line.strip()) > 0]
 
     result = []
 
@@ -107,11 +106,16 @@ def sample_mm_requests_qwen2vl(
         result.append(
             (
                 TokensPrompt(
-                    dict(
-                        prompt_token_ids=tokens,
-                        multi_modal_data=dict(image=dict(image_embeds=torch.randn(1036, 3584), image_grid_thw=torch.tensor([[1, 74, 56]]))),
+                    {
+                        "prompt_token_ids": tokens,
+                        "multi_modal_data": {
+                            "image": {
+                                "image_embeds": torch.randn(1036, 3584),
+                                "image_grid_thw": torch.tensor([[1, 74, 56]]),
+                            }
+                        },
                         # multi_modal_data=dict(image=main_image)
-                    )
+                    }
                 ),
                 prompt_len,
                 fixed_output_len,
@@ -133,7 +137,7 @@ def sample_mm_requests_phi3(
     processor = AutoProcessor.from_pretrained("microsoft/Phi-3.5-vision-instruct", trust_remote_code=True)
 
     with open(dataset_path, "r") as f:
-        json_data = [json.loads(line) for line in f.readlines() if len(line.strip()) > 0]
+        json_data = [json.loads(line) for line in f if len(line.strip()) > 0]
 
     result = []
 
@@ -152,10 +156,10 @@ def sample_mm_requests_phi3(
         result.append(
             (
                 TokensPrompt(
-                    dict(
-                        prompt_token_ids=tokens,
-                        multi_modal_data=dict(image=main_image),
-                    )
+                    {
+                        "prompt_token_ids": tokens,
+                        "multi_modal_data": {"image": main_image},
+                    }
                 ),
                 prompt_len,
                 fixed_output_len,
@@ -177,7 +181,7 @@ def sample_mm_requests_molmo(
     processor = AutoProcessor.from_pretrained("allenai/Molmo-7B-D-0924", trust_remote_code=True, torch_dtype="auto", device_map="auto")
 
     with open(dataset_path, "r") as f:
-        json_data = [json.loads(line) for line in f.readlines() if len(line.strip()) > 0]
+        json_data = [json.loads(line) for line in f if len(line.strip()) > 0]
 
     result = []
 
@@ -185,7 +189,7 @@ def sample_mm_requests_molmo(
         raw_b64 = data["chat_messages"][0]["content"][1]["image_url"]["url"]
         main_image = Image.open(BytesIO(base64.b64decode(raw_b64[raw_b64.find(",") + 1 :])))
 
-        inputs = inputs = processor.process(images=[main_image], text=data["chat_messages"][0]["content"][0]["text"])
+        inputs = processor.process(images=[main_image], text=data["chat_messages"][0]["content"][0]["text"])
 
         # print(inputs)
 
@@ -197,10 +201,10 @@ def sample_mm_requests_molmo(
         result.append(
             (
                 TokensPrompt(
-                    dict(
-                        prompt_token_ids=tokens,
-                        multi_modal_data=dict(image=main_image),
-                    )
+                    {
+                        "prompt_token_ids": tokens,
+                        "multi_modal_data": {"image": main_image},
+                    }
                 ),
                 prompt_len,
                 fixed_output_len,
@@ -217,7 +221,7 @@ def run_vllm(
     requests: List[Tuple[str, int, int]],
     model: str,
     tokenizer: str,
-    quantization: Optional[str],
+    quantization: str | None,
     tensor_parallel_size: int,
     seed: int,
     n: int,
@@ -268,8 +272,8 @@ def run_vllm(
     )
 
     # Add the requests to the engine.
-    prompts: List[str] = []
-    sampling_params: List[SamplingParams] = []
+    prompts: list[str] = []
+    sampling_params: list[SamplingParams] = []
     for prompt, _, output_len in requests:
         prompts.append(prompt)
         sampling_params.append(
@@ -458,8 +462,8 @@ def run_mii(
     start = time.perf_counter()
     llm.generate(prompts, max_new_tokens=output_len)
     end = time.perf_counter()
-    client = client(model)
-    client.terminate_server()
+    mii_client = client(model)
+    mii_client.terminate_server()
     return end - start
 
 
@@ -518,7 +522,7 @@ def main(args: argparse.Namespace):
     else:
         raise ValueError(f"Unknown backend: {args.backend}")
     total_num_tokens = sum(prompt_len + output_len for _, prompt_len, output_len in requests)
-    print(f"Throughput: {len(requests) / elapsed_time:.2f} requests/s, " f"{total_num_tokens / elapsed_time:.2f} tokens/s")
+    print(f"Throughput: {len(requests) / elapsed_time:.2f} requests/s, {total_num_tokens / elapsed_time:.2f} tokens/s")
 
     # Output JSON results if specified
     if args.output_json:
@@ -538,7 +542,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend", type=str, choices=["vllm", "hf", "mii"], default="vllm")
     parser.add_argument("--dataset", type=str, default=None, help="Path to the dataset.")
     parser.add_argument("--input-len", type=int, default=None, help="Input prompt length for each request")
-    parser.add_argument("--output-len", type=int, default=None, help="Output length for each request. Overrides the " "output length from the dataset.")
+    parser.add_argument("--output-len", type=int, default=None, help="Output length for each request. Overrides the output length from the dataset.")
     parser.add_argument("--model", type=str, default="facebook/opt-125m")
     parser.add_argument("--tokenizer", type=str, default=None)
     parser.add_argument("--quantization", "-q", choices=[*QUANTIZATION_METHODS, None], default=None)
@@ -552,7 +556,7 @@ if __name__ == "__main__":
         "--max-model-len",
         type=int,
         default=None,
-        help="Maximum length of a sequence (including prompt and output). " "If None, will be derived from the model.",
+        help="Maximum length of a sequence (including prompt and output). If None, will be derived from the model.",
     )
     parser.add_argument(
         "--dtype",
@@ -568,9 +572,7 @@ if __name__ == "__main__":
         "--gpu-memory-utilization",
         type=float,
         default=0.9,
-        help="the fraction of GPU memory to be used for "
-        "the model executor, which can range from 0 to 1."
-        "If unspecified, will use the default value of 0.9.",
+        help="the fraction of GPU memory to be used for the model executor, which can range from 0 to 1.If unspecified, will use the default value of 0.9.",
     )
     parser.add_argument("--enforce-eager", action="store_true", help="enforce eager execution")
     parser.add_argument(
@@ -597,9 +599,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-scheduler-steps", type=int, default=1, help="Maximum number of forward steps per scheduler call.")
     parser.add_argument("--enable-prefix-caching", action="store_true", help="Enable automatic prefix caching for vLLM backend.")
     parser.add_argument("--enable-chunked-prefill", action="store_true", help="enable chunked prefill for vLLM backend.")
-    parser.add_argument("--max-num-batched-tokens", type=int, default=None, help="maximum number of batched tokens per " "iteration")
+    parser.add_argument("--max-num-batched-tokens", type=int, default=None, help="maximum number of batched tokens per iteration")
     parser.add_argument(
-        "--download-dir", type=str, default=None, help="directory to download and load the weights, " "default to the default cache dir of huggingface"
+        "--download-dir", type=str, default=None, help="directory to download and load the weights, default to the default cache dir of huggingface"
     )
     parser.add_argument("--output-json", type=str, default=None, help="Path to save the throughput results in JSON format.")
     parser.add_argument(
@@ -661,5 +663,5 @@ if __name__ == "__main__":
         if args.hf_max_batch_size is not None:
             raise ValueError("HF max batch size is only for HF backend.")
         if args.tokenizer != args.model:
-            raise ValueError("Tokenizer must be the same as the model for MII " "backend.")
+            raise ValueError("Tokenizer must be the same as the model for MII backend.")
     main(args)

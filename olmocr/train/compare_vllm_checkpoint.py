@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Batch VLM inference comparison between vLLM and HuggingFace.
 Processes prompts and images from WildVision-bench until finding significant mismatch.
@@ -13,7 +12,6 @@ import random
 import shutil
 import tempfile
 from io import BytesIO
-from typing import Dict, List
 
 import numpy as np
 import PIL.Image
@@ -46,7 +44,7 @@ async def download_model(model_name_or_path: str, max_retries: int = 5):
                 logger.info(f"Downloading model with hugging face '{model_name_or_path}'")
                 snapshot_download(repo_id=model_name_or_path)
                 return model_name_or_path
-        except Exception:
+        except (OSError, RuntimeError):
             if retry == max_retries - 1:
                 raise  # Raise on final attempt and fail the job
             logger.warning(f"Model download failed (attempt {retry + 1}/{max_retries}), retrying...")
@@ -61,7 +59,7 @@ def image_to_base64_data_url(image):
     return f"data:image/png;base64,{img_str}"
 
 
-async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> List[Dict[str, str]]:
+async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> list[dict[str, str]]:
     """Load prompts and images from olmOCR-mix-0225-benchmarkset dataset with fixed random seed."""
     print(f"Loading olmOCR-mix-0225-benchmarkset dataset with {num_samples} samples and seed {seed}")
 
@@ -105,7 +103,7 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
                 # Build page query for page 1 of each PDF
                 query = await build_page_query(local_pdf_path=local_pdf_path, page=1, target_longest_image_dim=1280, image_rotation=0)
                 queries.append(query)
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 print(f"Error processing {os.path.basename(pdf_file)}: {e}")
                 continue
 
@@ -113,7 +111,7 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
         return queries
 
 
-def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, sampling_params, device, args):
+def process_single_prompt(sample: dict[str, any], llm, hf_model, processor, sampling_params, device, args):
     """Process a single prompt with image and return comparison results."""
     # Track if we found the first mismatch for max_prob_first_diff
     found_first_mismatch = False
@@ -144,7 +142,7 @@ def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, samp
     image_bytes = base64.b64decode(image_base64)
     image = PIL.Image.open(BytesIO(image_bytes))
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"PROMPT: {text_prompt[:100]}..." if len(text_prompt) > 100 else f"PROMPT: {text_prompt}")
     print(f"IMAGE: {image.size} {image.mode}")
 
@@ -233,13 +231,12 @@ def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, samp
             match = "✓" if token_id == hf_argmax else "✗"
 
             # Track first mismatch and probability difference
-            if token_id != hf_argmax:
-                if first_mismatch_idx is None:
-                    first_mismatch_idx = pos - len(prompt_token_ids)
-                    # Calculate probability difference only for the first mismatch
-                    if vllm_prob is not None and not found_first_mismatch:
-                        max_prob_first_diff = abs(vllm_prob - hf_prob)
-                        found_first_mismatch = True
+            if token_id != hf_argmax and first_mismatch_idx is None:
+                first_mismatch_idx = pos - len(prompt_token_ids)
+                # Calculate probability difference only for the first mismatch
+                if vllm_prob is not None and not found_first_mismatch:
+                    max_prob_first_diff = abs(vllm_prob - hf_prob)
+                    found_first_mismatch = True
 
             # Decode HF argmax token (only show if mismatch)
             hf_token_str = ""
@@ -322,9 +319,9 @@ async def async_main():
     # Initialize statistics tracking
     all_results = []
     for i, sample in enumerate(samples):
-        print(f"\n\n{'#'*80}")
-        print(f"### Processing sample {i+1}/{len(samples)}")
-        print(f"{'#'*80}")
+        print(f"\n\n{'#' * 80}")
+        print(f"### Processing sample {i + 1}/{len(samples)}")
+        print(f"{'#' * 80}")
 
         # Process single sample
         result = process_single_prompt(sample, llm, hf_model, processor_hf, sampling_params, device, args)
@@ -332,23 +329,23 @@ async def async_main():
 
         # Check if we found significant mismatch
         if result["first_mismatch_idx"] is not None and result["max_prob_first_diff"] > args.prob_threshold:
-            print(f"\n\n{'*'*80}")
+            print(f"\n\n{'*' * 80}")
             print(f"*** FOUND SIGNIFICANT MISMATCH ***")
             print(f"*** First mismatch probability difference: {result['max_prob_first_diff']:.6f} > {args.prob_threshold} ***")
-            print(f"*** Stopping after sample {i+1}/{len(samples)} ***")
-            print(f"{'*'*80}")
+            print(f"*** Stopping after sample {i + 1}/{len(samples)} ***")
+            print(f"{'*' * 80}")
 
     # Report aggregated statistics
-    print(f"\n\n{'='*80}")
+    print(f"\n\n{'=' * 80}")
     print("=== AGGREGATED STATISTICS ===")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     total_samples = len(all_results)
     samples_with_mismatches = sum(1 for r in all_results if r["first_mismatch_idx"] is not None)
     total_tokens_generated = sum(r["num_generated"] for r in all_results)
 
     print(f"Total samples processed: {total_samples}")
-    print(f"Samples with mismatches: {samples_with_mismatches} ({samples_with_mismatches/total_samples*100:.1f}%)")
+    print(f"Samples with mismatches: {samples_with_mismatches} ({samples_with_mismatches / total_samples * 100:.1f}%)")
     print(f"Total tokens generated: {total_tokens_generated}")
 
     if samples_with_mismatches > 0:
@@ -368,7 +365,7 @@ async def async_main():
     else:
         print("\nNo mismatches found in any samples!")
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
 
 
 def main():

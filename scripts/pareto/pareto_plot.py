@@ -9,9 +9,8 @@ import argparse
 import os
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import pandas as pd
-from matplotlib import font_manager
+from matplotlib import font_manager, ticker
 
 # Parse arguments
 ap = argparse.ArgumentParser()
@@ -215,7 +214,14 @@ ordered_handles = [label_to_handle[label] for label in desired_order if label in
 ordered_labels = [label for label in desired_order if label in labels]
 
 plt.legend(
-    ordered_handles, ordered_labels, loc="lower right", fontsize=12, frameon=True, framealpha=0.9, edgecolor=TEAL, facecolor="white"  # Increased from 10
+    ordered_handles,
+    ordered_labels,
+    loc="lower right",
+    fontsize=12,
+    frameon=True,
+    framealpha=0.9,
+    edgecolor=TEAL,
+    facecolor="white",  # Increased from 10
 )
 
 # Adjust layout

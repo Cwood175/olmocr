@@ -7,6 +7,7 @@ this script issues a model prompt completion
 collects the yes/no answers, and writes corresponding Dolma attributes JSONL files under
 scratch/attributes/, mirroring the input structure.
 """
+
 import argparse
 import asyncio
 import atexit
@@ -18,7 +19,6 @@ import random
 import re
 import sys
 import time
-from typing import Optional
 from urllib.parse import urlparse
 
 import boto3
@@ -70,8 +70,8 @@ metrics = MetricsKeeper(window=60 * 5)
 class PIIClassification(BaseModel):
     primary_language: str = Field(..., description="Primary language as a two-letter code")
     document_type: str = Field(..., description="Basic summary of document type classification")
-    is_resume_cv: Optional[bool] = Field(..., description="True if the document is a page from a resume or cv")
-    contains_pii: Optional[bool] = Field(..., description="True if document contains PII")
+    is_resume_cv: bool | None = Field(..., description="True if the document is a page from a resume or cv")
+    contains_pii: bool | None = Field(..., description="True if document contains PII")
 
 
 async def _process_single_page(page_text: str) -> PIIClassification:
@@ -104,7 +104,7 @@ async def _process_single_page(page_text: str) -> PIIClassification:
     # ---------- HTTP call ---------------------------------------------------
     try:
         status, body = await apost(url, json_data=query)
-    except Exception as e:
+    except (OSError, ValueError, UnicodeError, asyncio.IncompleteReadError) as e:
         logger.warning(f"Server network error: {e!s}")
         metrics.add_metrics(server_errors=1)
         return PIIClassification(primary_language="en", document_type="unknown", is_resume_cv=None, contains_pii=None)
@@ -205,17 +205,14 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
     finally:
         # But just make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except OSError:
+                logger.debug("Error while closing HTTP connection", exc_info=True)
 
 
 async def process_dolma_document(args, dolma_doc, sem):
@@ -274,6 +271,17 @@ async def process_dolma_document(args, dolma_doc, sem):
         raise NotImplementedError("Missing code here, expecting this to be dolma docs made by olmocr....")
 
 
+def _read_file(file_path):
+    with open(file_path, "rb") as file:
+        return file.read()
+
+
+def _write_file(file_path, data, mode):
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, mode) as file:
+        file.write(data)
+
+
 async def process_file(args, worker_id: int, file_uri: str):
     """
     Download a JSONL file, query model per record, and collect attributes.
@@ -282,13 +290,12 @@ async def process_file(args, worker_id: int, file_uri: str):
     if file_uri.startswith("s3://"):
         raw = await asyncio.to_thread(get_s3_bytes_with_backoff, dataset_s3, file_uri)
     else:
-        with open(file_uri, "rb") as f:
-            raw = f.read()
+        raw = await asyncio.to_thread(_read_file, file_uri)
 
     # Decompress if needed
     if file_uri.endswith(".gz"):
         file_bytes = gzip.decompress(raw)
-    elif file_uri.endswith(".ztd") or file_uri.endswith(".zst") or file_uri.endswith(".zstd"):
+    elif file_uri.endswith((".ztd", ".zst", ".zstd")):
         dctx = zstd.ZstdDecompressor()
         file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
     else:
@@ -318,7 +325,12 @@ async def process_file(args, worker_id: int, file_uri: str):
     return attributes
 
 
-async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, worker_id: int):
+async def worker(
+    args,
+    work_queue: WorkQueue,
+    semaphore: asyncio.Semaphore,
+    worker_id: int,
+):
     """
     Pop work-items off the queue, run PII tagging, write the attributes file
     next to the dataset (keeping the original compression), mark the item done,
@@ -369,9 +381,7 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
                 workspace_s3.put_object(Bucket=bucket, Key=key, Body=payload)
             else:
                 out_path = os.path.join(args.dataset, out_rel)
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with open(out_path, "wb") as fh:
-                    fh.write(payload)
+                await asyncio.to_thread(_write_file, out_path, payload, "wb")
 
             # 4. Mark queue item done
             await work_queue.mark_done(work_item)
@@ -384,11 +394,10 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
                 workspace_s3.put_object(Bucket=bkt, Key=key, Body=b"")
             else:
                 sentinel_path = os.path.join(args.scratch, sentinel_rel)
-                os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
-                open(sentinel_path, "w").close()
+                await asyncio.to_thread(_write_file, sentinel_path, "", "w")
 
-        except Exception as exc:
-            logger.exception(f"Worker {worker_id} exception: {exc!s}")
+        except (OSError, ValueError, KeyError, zstd.ZstdError):
+            logger.exception("Worker %s exception", worker_id)
         finally:
             semaphore.release()
 
@@ -455,7 +464,7 @@ async def server_task(model_name_or_path, args, semaphore):
             try:
                 line = line.decode("utf-8").rstrip()
                 await process_line(line)
-            except Exception as ex:
+            except UnicodeDecodeError as ex:
                 logger.warning(f"Got {ex} when reading log line from inference server, skipping")
 
     async def timeout_task():
@@ -517,12 +526,12 @@ async def check_server_ready():
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
+        except httpx.HTTPError:
             logger.warning(f"Attempt {attempt}: Please wait for model server to become ready...")
 
         await asyncio.sleep(delay_sec)
 
-    raise Exception("model server did not become ready after waiting.")
+    raise RuntimeError("model server did not become ready after waiting.")
 
 
 async def download_model(model_name_or_path: str):
@@ -589,11 +598,22 @@ def submit_beaker_job(args):
             print("Exiting...")
             sys.exit(1)
 
-        b.secret.write(f"{owner}-WEKA_ACCESS_KEY_ID", os.environ.get("WEKA_ACCESS_KEY_ID", ""), args.beaker_workspace)
-        b.secret.write(f"{owner}-WEKA_SECRET_ACCESS_KEY", os.environ.get("WEKA_SECRET_ACCESS_KEY", ""), args.beaker_workspace)
+        b.secret.write(
+            f"{owner}-WEKA_ACCESS_KEY_ID",
+            os.environ.get("WEKA_ACCESS_KEY_ID", ""),
+            args.beaker_workspace,
+        )
+        b.secret.write(
+            f"{owner}-WEKA_SECRET_ACCESS_KEY",
+            os.environ.get("WEKA_SECRET_ACCESS_KEY", ""),
+            args.beaker_workspace,
+        )
+        credentials_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
+        with open(credentials_path) as credentials_file:
+            credentials = credentials_file.read()
         b.secret.write(
             f"{owner}-AWS_CREDENTIALS_FILE",
-            open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")).read(),
+            credentials,
             args.beaker_workspace,
         )
 
@@ -611,7 +631,12 @@ def submit_beaker_job(args):
 
     try:
         b.secret.get("OE_DATA_GCS_SA_KEY", args.beaker_workspace)
-        env_var_secrets.append(EnvVar(name="GOOGLE_APPLICATION_CREDENTIALS_FILE", secret="OE_DATA_GCS_SA_KEY"))
+        env_var_secrets.append(
+            EnvVar(
+                name="GOOGLE_APPLICATION_CREDENTIALS_FILE",
+                secret="OE_DATA_GCS_SA_KEY",
+            )
+        )
     except SecretNotFound:
         print("Input the olmo-gcs SA key if you would like to load weights from gcs (end with a double newline):")
         lines = []
@@ -624,7 +649,12 @@ def submit_beaker_job(args):
         gcs_sa_key = "\n".join(lines[:-1]).strip()  # Remove the last empty line
         if gcs_sa_key:
             b.secret.write("OE_DATA_GCS_SA_KEY", gcs_sa_key, args.beaker_workspace)
-            env_var_secrets.append(EnvVar(name="GOOGLE_APPLICATION_CREDENTIALS_FILE", secret="OE_DATA_GCS_SA_KEY"))
+            env_var_secrets.append(
+                EnvVar(
+                    name="GOOGLE_APPLICATION_CREDENTIALS_FILE",
+                    secret="OE_DATA_GCS_SA_KEY",
+                )
+            )
 
     # Create the experiment spec
     experiment_spec = ExperimentSpec(
@@ -642,9 +672,13 @@ def submit_beaker_job(args):
                 ),
                 image=ImageSource(beaker=beaker_image),
                 command=["python", "scripts/tagging_pipeline.py"] + args_list,
-                env_vars=[EnvVar(name="BEAKER_JOB_NAME", value=task_name), EnvVar(name="OWNER", value=owner)] + env_var_secrets,
+                env_vars=[
+                    EnvVar(name="BEAKER_JOB_NAME", value=task_name),
+                    EnvVar(name="OWNER", value=owner),
+                    *env_var_secrets,
+                ],
                 resources=TaskResources(gpu_count=1),
-                constraints=Constraints(cluster=args.beaker_cluster if isinstance(args.beaker_cluster, list) else [args.beaker_cluster]),
+                constraints=Constraints(cluster=(args.beaker_cluster if isinstance(args.beaker_cluster, list) else [args.beaker_cluster])),
                 result=ResultSpec(path="/noop-results"),
             )
         ],
@@ -660,20 +694,57 @@ async def main():
     parser.add_argument("dataset", help="Dolma dataset root (local or s3://) with documents/ folder")
     parser.add_argument("scratch", help="Scratch workspace (local dir or s3://)")
     parser.add_argument("--workers", type=int, default=4, help="Number of concurrent workers")
-    parser.add_argument("--parallel_requests", type=int, default=800, help="Max number of parallel requests to send to model")
-    parser.add_argument("--model", default="google/gemma-3-4b-it", help="Model path or name, hugging face or local path format")
-    parser.add_argument("--attribute_name", default="model_pii_tagging", help="Path to use for attribute naming")
+    parser.add_argument(
+        "--parallel_requests",
+        type=int,
+        default=800,
+        help="Max number of parallel requests to send to model",
+    )
+    parser.add_argument(
+        "--model",
+        default="google/gemma-3-4b-it",
+        help="Model path or name, hugging face or local path format",
+    )
+    parser.add_argument(
+        "--attribute_name",
+        default="model_pii_tagging",
+        help="Path to use for attribute naming",
+    )
 
     # Beaker/job running stuff
-    parser.add_argument("--beaker", action="store_true", help="Submit this job to beaker instead of running locally")
-    parser.add_argument("--beaker_workspace", help="Beaker workspace to submit to", default="ai2/olmocr")
+    parser.add_argument(
+        "--beaker",
+        action="store_true",
+        help="Submit this job to beaker instead of running locally",
+    )
+    parser.add_argument(
+        "--beaker_workspace",
+        help="Beaker workspace to submit to",
+        default="ai2/olmocr",
+    )
     parser.add_argument(
         "--beaker_cluster",
         help="Beaker clusters you want to run on",
-        default=["ai2/jupiter-cirrascale-2", "ai2/ceres-cirrascale", "ai2/neptune-cirrascale", "ai2/saturn-cirrascale", "ai2/augusta-google-1"],
+        default=[
+            "ai2/jupiter-cirrascale-2",
+            "ai2/ceres-cirrascale",
+            "ai2/neptune-cirrascale",
+            "ai2/saturn-cirrascale",
+            "ai2/augusta-google-1",
+        ],
     )
-    parser.add_argument("--beaker_gpus", type=int, default=1, help="Number of gpu replicas to run")
-    parser.add_argument("--beaker_priority", type=str, default="normal", help="Beaker priority level for the job")
+    parser.add_argument(
+        "--beaker_gpus",
+        type=int,
+        default=1,
+        help="Number of gpu replicas to run",
+    )
+    parser.add_argument(
+        "--beaker_priority",
+        type=str,
+        default="normal",
+        help="Beaker priority level for the job",
+    )
 
     parser.add_argument("--port", type=int, default=30024, help="Port for Model server")
     args = parser.parse_args()
@@ -688,14 +759,20 @@ async def main():
         server_logger.addHandler(console_handler)
         if "AWS_CREDENTIALS_FILE" in os.environ:
             cred_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
-            os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("AWS_CREDENTIALS_FILE"))
+            await asyncio.to_thread(
+                _write_file,
+                cred_path,
+                os.environ.get("AWS_CREDENTIALS_FILE"),
+                "w",
+            )
         if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
             cred_path = os.path.join(os.path.expanduser("~"), ".gcs", "credentials")
-            os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
+            await asyncio.to_thread(
+                _write_file,
+                cred_path,
+                os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"),
+                "w",
+            )
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
         workspace_s3 = boto3.client("s3")
         dataset_s3 = boto3.client("s3")

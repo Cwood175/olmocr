@@ -3,7 +3,7 @@ import argparse
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict
+from typing import Any
 
 import openai
 from tqdm import tqdm
@@ -11,7 +11,7 @@ from tqdm import tqdm
 from olmocr.data.renderpdf import render_pdf_to_base64png
 
 
-def process_test_case(case: Dict[str, Any], client, pdf_dir: str, model: str = "gpt-4o") -> Dict[str, Any]:
+def process_test_case(case: dict[str, Any], client, pdf_dir: str, model: str = "gpt-4o") -> dict[str, Any]:
     """
     Send a request to GPT-4 asking if the before and after text appear in the same region.
     Include the PDF image in the prompt.
@@ -69,12 +69,12 @@ def process_test_case(case: Dict[str, Any], client, pdf_dir: str, model: str = "
         case_with_response = case.copy()
         case_with_response["gpt4_response"] = response.choices[0].message.content
         return case_with_response
-    except Exception as e:
+    except (OSError, openai.OpenAIError) as e:
         # In case of error, return the original case with an error message
         case_with_response = case.copy()
-        case_with_response["gpt4_response"] = f"ERROR: {str(e)}"
+        case_with_response["gpt4_response"] = f"ERROR: {e}"
         # Print the error for debugging
-        print(f"Error processing {case.get('id', 'unknown')}: {str(e)}")
+        print(f"Error processing {case.get('id', 'unknown')}: {e}")
         return case_with_response
 
 
@@ -114,11 +114,11 @@ def process_jsonl_file(input_file: str, output_file: str, api_key: str, pdf_dir:
             try:
                 result = future.result()
                 results.append(result)
-            except Exception as e:
+            except (OSError, openai.OpenAIError) as e:
                 case = future_to_case[future]
-                print(f"Error processing case {case.get('id', 'unknown')}: {str(e)}")
+                print(f"Error processing case {case.get('id', 'unknown')}: {e}")
                 # Add failed case with error message
-                case["gpt4_response"] = f"PROCESSING_ERROR: {str(e)}"
+                case["gpt4_response"] = f"PROCESSING_ERROR: {e}"
                 results.append(case)
 
     # Filter for cases where GPT-4 responded with "NO"

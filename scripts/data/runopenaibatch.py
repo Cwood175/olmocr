@@ -5,6 +5,7 @@ import argparse
 import datetime
 import json
 import os
+import sys
 import time
 
 from openai import OpenAI
@@ -93,7 +94,7 @@ def get_state(folder_path: str) -> dict:
         jsonl_files = [f for f in os.listdir(folder_path) if f.endswith(".jsonl")]
 
         if not jsonl_files:
-            raise Exception("No JSONL files found to process")
+            raise FileNotFoundError("No JSONL files found to process")
 
         state = {
             f: {
@@ -101,7 +102,7 @@ def get_state(folder_path: str) -> dict:
                 "batch_id": None,
                 "state": "init",
                 "size": os.path.getsize(os.path.join(folder_path, f)),
-                "last_checked": datetime.datetime.now(),
+                "last_checked": datetime.datetime.now(datetime.UTC),
             }
             for f in jsonl_files
         }
@@ -117,7 +118,7 @@ def update_state(folder_path: str, filename: str, **kwargs):
     for kwarg_name, kwarg_value in kwargs.items():
         all_state[filename][kwarg_name] = kwarg_value
 
-    all_state[filename]["last_checked"] = datetime.datetime.now()
+    all_state[filename]["last_checked"] = datetime.datetime.now(datetime.UTC)
 
     state_file = os.path.join(folder_path, UPLOAD_STATE_FILENAME)
     temp_file = state_file + ".tmp"
@@ -168,7 +169,7 @@ def get_done_total(folder_path):
 def process_folder(folder_path: str, max_gb: int):
     output_folder = f"{folder_path.rstrip('/')}_done"
     os.makedirs(output_folder, exist_ok=True)
-    last_loop_time = datetime.datetime.now()
+    last_loop_time = datetime.datetime.now(datetime.UTC)
 
     starting_free_space = MAX_OPENAI_DISK_SPACE - get_total_space_usage()
 
@@ -179,13 +180,13 @@ def process_folder(folder_path: str, max_gb: int):
 
     while not all(state["state"] in FINISHED_STATES for state in get_state(folder_path).values()):
         processing, done, total = get_done_total(folder_path)
-        print(f"Total items {total}, processing {processing}, done {done}, {done/total*100:.1f}%")
+        print(f"Total items {total}, processing {processing}, done {done}, {done / total * 100:.1f}%")
 
         work_item = get_next_work_item(folder_path)
         print(f"Processing {os.path.basename(work_item['filename'])}, cur status = {work_item['state']}")
 
         # If all work items have been checked on, then you need to sleep a bit
-        if last_loop_time > datetime.datetime.now() - datetime.timedelta(seconds=1):
+        if last_loop_time > datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=1):
             time.sleep(0.2)
 
         if work_item["state"] == "init":
@@ -193,7 +194,7 @@ def process_folder(folder_path: str, max_gb: int):
                 try:
                     batch_id = upload_and_start_batch(os.path.join(folder_path, work_item["filename"]))
                     update_state(folder_path, work_item["filename"], state="processing", batch_id=batch_id)
-                except Exception as ex:
+                except (OSError, RuntimeError, ValueError) as ex:
                     print(ex)
                     update_state(folder_path, work_item["filename"], state="init")
             else:
@@ -213,13 +214,13 @@ def process_folder(folder_path: str, max_gb: int):
 
                 try:
                     client.files.delete(batch_data.input_file_id)
-                except Exception as ex:
+                except (OSError, RuntimeError, ValueError) as ex:
                     print(ex)
                     print("Could not delete old input data")
 
                 try:
                     client.files.delete(batch_data.output_file_id)
-                except Exception as ex:
+                except (OSError, RuntimeError, ValueError) as ex:
                     print(ex)
                     print("Could not delete old output data")
             elif batch_data.status in ["failed", "expired", "cancelled"]:
@@ -227,13 +228,13 @@ def process_folder(folder_path: str, max_gb: int):
 
                 try:
                     client.files.delete(batch_data.input_file_id)
-                except:
+                except (OSError, RuntimeError, ValueError):
                     print("Could not delete old file data")
             else:
                 # Update the time you checked so you can move onto the next time
                 update_state(folder_path, work_item["filename"])
 
-        last_loop_time = datetime.datetime.now()
+        last_loop_time = datetime.datetime.now(datetime.UTC)
 
     print("All work has been completed")
 
@@ -252,7 +253,7 @@ if __name__ == "__main__":
         if input(f"Are you sure you want to delete {len(all_files)} files from your OpenAI account? [y/N]").lower() == "y":
             for file in tqdm(all_files):
                 client.files.delete(file.id)
-        quit()
+        sys.exit()
 
     # Process the folder and start batches
     process_folder(args.folder, args.max_gb)

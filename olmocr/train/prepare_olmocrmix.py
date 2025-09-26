@@ -4,7 +4,6 @@ import tarfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import PathLike
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -17,12 +16,12 @@ def extract_tarball(tarball_path: Path, extract_dir: Path) -> int:
         with tarfile.open(tarball_path, "r") as tar:
             tar.extractall(extract_dir)
             return len(tar.getmembers())
-    except Exception as e:
+    except (tarfile.TarError, OSError) as e:
         print(f"Error extracting {tarball_path}: {e}")
         return 0
 
 
-def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: str | PathLike, max_examples: Optional[int] = None) -> str:
+def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: str | PathLike, max_examples: int | None = None) -> str:
     """
     Prepare OLMoCR mix dataset by downloading from HuggingFace and organizing into a folder structure.
 
@@ -95,13 +94,9 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                     total_files_extracted = 0
                     with tqdm(total=len(tarball_files), desc="Extracting tarballs") as pbar:
                         for future in as_completed(future_to_tarball):
-                            tarball = future_to_tarball[future]
-                            try:
-                                files_extracted = future.result()
-                                total_files_extracted += files_extracted
-                                pbar.set_postfix({"files": total_files_extracted})
-                            except Exception as e:
-                                print(f"\nError with {tarball.name}: {e}")
+                            files_extracted = future.result()
+                            total_files_extracted += files_extracted
+                            pbar.set_postfix({"files": total_files_extracted})
                             pbar.update(1)
 
                 print(f"Extracted {total_files_extracted} files from tarballs to {extracted_dir}")
@@ -122,7 +117,6 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                 break
 
             try:
-
                 # Extract fields from the row
                 # The rows in the parquet will look like url, page_number, response (json format), and id
                 response = row.get("response", "")
@@ -153,8 +147,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
 
                     # Write front matter
                     f.write("---\n")
-                    for k, v in front_matter.items():
-                        f.write(f"{k}: {v}\n")
+                    f.writelines(f"{k}: {v}\n" for k, v in front_matter.items())
 
                     if natural_text is not None and len(natural_text.strip()) > 0:
                         f.write("---\n")
@@ -180,7 +173,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                 total_processed += 1
                 if total_processed % 1000 == 0:
                     print(f"Processed {total_processed} examples...")
-            except Exception as ex:
+            except (json.JSONDecodeError, AssertionError, OSError, TypeError, AttributeError) as ex:
                 print(f"Error processing line: {ex}")
                 total_errors += 1
 

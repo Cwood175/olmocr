@@ -6,7 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from os import PathLike
-from typing import List, Literal
+from typing import Literal
 
 import ftfy
 import pypdfium2 as pdfium
@@ -52,8 +52,8 @@ def _get_pdftotext(local_pdf_path: str, page: int) -> str:
     pdftotext_result = subprocess.run(
         ["pdftotext", "-f", str(page), "-l", str(page), local_pdf_path, "-"],
         timeout=60,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
+        check=False,
     )
     assert pdftotext_result.returncode == 0
     return pdftotext_result.stdout.decode("utf-8")
@@ -78,7 +78,7 @@ def _transform_point(x, y, m):
     return x_new, y_new
 
 
-def _mult(m: List[float], n: List[float]) -> List[float]:
+def _mult(m: list[float], n: list[float]) -> list[float]:
     return [
         m[0] * n[0] + m[1] * n[2],
         m[0] * n[1] + m[1] * n[3],
@@ -122,8 +122,8 @@ class ImageElement(Element):
 @dataclass(frozen=True)
 class PageReport:
     mediabox: BoundingBox
-    text_elements: List[TextElement]
-    image_elements: List[ImageElement]
+    text_elements: list[TextElement]
+    image_elements: list[ImageElement]
 
 
 def _pdf_report(local_pdf_path: str, page_num: int) -> PageReport:
@@ -159,7 +159,7 @@ def _pdf_report(local_pdf_path: str, page_num: int) -> PageReport:
     )
 
 
-def _merge_image_elements(images: List[ImageElement], tolerance: float = 0.5) -> List[ImageElement]:
+def _merge_image_elements(images: list[ImageElement], tolerance: float = 0.5) -> list[ImageElement]:
     n = len(images)
     parent = list(range(n))  # Initialize Union-Find parent pointers
 
@@ -241,7 +241,7 @@ def _cap_split_string(text: str, max_length: int) -> str:
 def _cleanup_element_text(element_text: str) -> str:
     MAX_TEXT_ELEMENT_LENGTH = 250
     TEXT_REPLACEMENTS = {"[": "\\[", "]": "\\]", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
-    text_replacement_pattern = re.compile("|".join(re.escape(key) for key in TEXT_REPLACEMENTS.keys()))
+    text_replacement_pattern = re.compile("|".join(re.escape(key) for key in TEXT_REPLACEMENTS))
 
     element_text = ftfy.fix_text(element_text).strip()
 

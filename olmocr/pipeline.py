@@ -85,10 +85,25 @@ pdf_s3 = boto3.client("s3")
 metrics = MetricsKeeper(window=60 * 5)
 tracker = WorkerTracker()
 
-pdf_render_max_workers = asyncio.BoundedSemaphore(int(float(os.environ.get("BEAKER_ASSIGNED_CPU_COUNT", max(1, multiprocessing.cpu_count() - 2)))))
+pdf_render_max_workers = asyncio.BoundedSemaphore(
+    int(
+        float(
+            os.environ.get(
+                "BEAKER_ASSIGNED_CPU_COUNT",
+                max(1, multiprocessing.cpu_count() - 2),
+            )
+        )
+    )
+)
 
 # Filter object, cached so it will only get loaded when/if you need it
-get_pdf_filter = cache(lambda: PdfFilter(languages_to_keep={Language.ENGLISH, None}, apply_download_spam_check=True, apply_form_check=True))
+get_pdf_filter = cache(
+    lambda: PdfFilter(
+        languages_to_keep={Language.ENGLISH, None},
+        apply_download_spam_check=True,
+        apply_form_check=True,
+    )
+)
 
 # Specify a default port, but it can be overridden by args
 BASE_SERVER_PORT = 30024
@@ -105,13 +120,24 @@ class PageResult:
     is_fallback: bool
 
 
-async def build_page_query(local_pdf_path: str, page: int, target_longest_image_dim: int, image_rotation: int = 0, model_name: str = "olmocr") -> dict:
+async def build_page_query(
+    local_pdf_path: str,
+    page: int,
+    target_longest_image_dim: int,
+    image_rotation: int = 0,
+    model_name: str = "olmocr",
+) -> dict:
     MAX_TOKENS = 4500
     assert image_rotation in [0, 90, 180, 270], "Invalid image rotation provided in build_page_query"
 
     # Allow the page rendering to process in the background, but limit the number of workers otherwise you can overload the system
     async with pdf_render_max_workers:
-        image_base64 = await asyncio.to_thread(render_pdf_to_base64png, local_pdf_path, page, target_longest_image_dim=target_longest_image_dim)
+        image_base64 = await asyncio.to_thread(
+            render_pdf_to_base64png,
+            local_pdf_path,
+            page,
+            target_longest_image_dim=target_longest_image_dim,
+        )
 
     if image_rotation != 0:
         image_bytes = base64.b64decode(image_base64)
@@ -139,7 +165,10 @@ async def build_page_query(local_pdf_path: str, page: int, target_longest_image_
                 "role": "user",
                 "content": [
                     {"type": "text", "text": build_no_anchoring_yaml_prompt()},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_base64}"},
+                    },
                 ],
             }
         ],
@@ -177,7 +206,7 @@ async def apost(url, json_data, api_key=None):
         headers = [
             f"POST {path} HTTP/1.1",
             f"Host: {host}",
-            f"Content-Type: application/json",
+            "Content-Type: application/json",
             f"Content-Length: {len(json_payload)}",
         ]
 
@@ -215,20 +244,23 @@ async def apost(url, json_data, api_key=None):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
     finally:
         # But just make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except OSError:
+                logger.warning("Error while closing HTTP connection", exc_info=True)
 
 
-async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path: str, page_num: int) -> PageResult:
+async def process_page(
+    args,
+    worker_id: int,
+    pdf_orig_path: str,
+    pdf_local_path: str,
+    page_num: int,
+) -> PageResult:
     if args.server:
         server_url = args.server.rstrip("/")
         # Check if the server URL already contains '/v1/openai' (DeepInfra case)
@@ -327,7 +359,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
                 output_tokens=base_response_data["usage"].get("completion_tokens", 0),
                 is_fallback=False,
             )
-        except (ConnectionError, OSError, asyncio.TimeoutError) as e:
+        except (TimeoutError, ConnectionError, OSError) as e:
             logger.warning(f"Client error on attempt {attempt} for {pdf_orig_path}-{page_num}: {type(e)} {e}")
 
             # Now we want to do exponential backoff, and not count this as an actual page retry
@@ -501,6 +533,10 @@ def build_dolma_document(pdf_orig_path, page_results):
 
 
 async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
+    def write_text_file(path, contents):
+        with open(path, "w") as output_file:
+            output_file.write(contents)
+
     while True:
         # Wait until allowed to proceed
         await semaphore.acquire()
@@ -526,9 +562,10 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
             for task in dolma_tasks:
                 try:
                     result = task.result()
-                except:
-                    # some dolma doc creations may have failed
-                    pass
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    # Some Dolma document creations may have failed.
+                    logger.warning("Dolma document creation failed: %s", exc)
+                    continue
 
                 if result is not None:
                     dolma_docs.append(result)
@@ -602,8 +639,7 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
                     else:
                         # For local paths, create the directory structure and write the file
                         os.makedirs(markdown_dir, exist_ok=True)
-                        with open(markdown_path, "w") as md_f:
-                            md_f.write(natural_text)
+                        await asyncio.to_thread(write_text_file, markdown_path, natural_text)
 
             # Update finished token counts from successful documents
             metrics.add_metrics(
@@ -612,8 +648,8 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
             )
 
             await work_queue.mark_done(work_item)
-        except Exception as e:
-            logger.exception(f"Exception occurred while processing work_hash {work_item.hash}: {e}")
+        except (ExceptionGroup, KeyError, OSError, RuntimeError, TypeError, ValueError):
+            logger.exception(f"Exception occurred while processing work_hash {work_item.hash}")
         finally:
             semaphore.release()
 
@@ -657,7 +693,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore, unknown_args=Non
     def _kill_proc():
         try:
             proc.terminate()
-        except:
+        except ProcessLookupError:
             logger.info("VLLM Process already terminated")
 
     atexit.register(_kill_proc)
@@ -704,7 +740,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore, unknown_args=Non
             try:
                 line = line.decode("utf-8").rstrip()
                 await process_line(line)
-            except Exception as ex:
+            except UnicodeDecodeError as ex:
                 logger.warning(f"Got {ex} when reading log line from inference server, skipping")
 
     async def timeout_task():
@@ -728,7 +764,8 @@ async def vllm_server_task(model_name_or_path, args, semaphore, unknown_args=Non
                     last_semaphore_release = time.time()
                     logger.info(f"Semaphore released at {last_running_req} running {last_queue_req} queued, peak: {peak_running_req})")
         except asyncio.CancelledError:
-            pass  # Clean up if the task is cancelled
+            logger.debug("VLLM timeout task cancelled")
+            raise
 
     # Start tasks to read stdout, stderr, and handle timeout logic
     stdout_task = asyncio.create_task(read_stream(proc.stdout))
@@ -742,7 +779,7 @@ async def vllm_server_task(model_name_or_path, args, semaphore, unknown_args=Non
         proc.terminate()
         try:
             await asyncio.wait_for(proc.wait(), timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("VLLM server did not terminate within 10 seconds")
         raise
 
@@ -795,12 +832,12 @@ async def vllm_server_ready(args):
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
+        except httpx.HTTPError:
             logger.warning(f"Attempt {attempt}: Please wait for vllm server to become ready...")
 
         await asyncio.sleep(delay_sec)
 
-    raise Exception("vllm server did not become ready after waiting.")
+    raise RuntimeError("vllm server did not become ready after waiting.")
 
 
 async def download_model(model_name_or_path: str, max_retries: int = 5):
@@ -821,7 +858,7 @@ async def download_model(model_name_or_path: str, max_retries: int = 5):
                 logger.info(f"Downloading model with hugging face '{model_name_or_path}'")
                 snapshot_download(repo_id=model_name_or_path)
                 return model_name_or_path
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             if retry == max_retries - 1:
                 raise  # Raise on final attempt and fail the job
 
@@ -882,9 +919,12 @@ def submit_beaker_job(args):
 
         b.secret.write(f"{owner}-WEKA_ACCESS_KEY_ID", os.environ.get("WEKA_ACCESS_KEY_ID", ""), args.beaker_workspace)
         b.secret.write(f"{owner}-WEKA_SECRET_ACCESS_KEY", os.environ.get("WEKA_SECRET_ACCESS_KEY", ""), args.beaker_workspace)
+        credentials_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
+        with open(credentials_path) as credentials_file:
+            credentials = credentials_file.read()
         b.secret.write(
             f"{owner}-AWS_CREDENTIALS_FILE",
-            open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")).read(),
+            credentials,
             args.beaker_workspace,
         )
 
@@ -1012,11 +1052,17 @@ def print_stats(args, root_work_queue):
                 long_context_docs,
                 long_context_tokens,
             )
-        except Exception as e:
+        except (
+            json.JSONDecodeError,
+            KeyError,
+            OSError,
+            TypeError,
+            UnicodeError,
+        ) as e:
             logger.warning(f"Error processing {s3_path}: {e}")
             return 0, 0, 0, 0, 0, set(), 0, 0
 
-    print(f"\nCompleted work items {completed_items:,} out of {total_items:,}: {completed_items/total_items*100:.2f}%")
+    print(f"\nCompleted work items {completed_items:,} out of {total_items:,}: {completed_items / total_items * 100:.2f}%")
     print("\nProcessing output files...")
     docs_total = 0
     input_tokens_total = 0
@@ -1065,11 +1111,11 @@ def print_stats(args, root_work_queue):
     print(f"Total pages processed: {pages_total:,}")
 
     print(f"\nTotal output tokens: {output_tokens_total:,}")
-    print(f"Projected output tokens: {round((output_tokens_total/max(1, completed_items))*total_items):,}")
+    print(f"Projected output tokens: {round((output_tokens_total / max(1, completed_items)) * total_items):,}")
 
-    print(f"\nAverage pages per doc: {pages_total/max(1,docs_total):,.1f}")
-    print(f"Average output tokens per doc: {output_tokens_total/max(1,docs_total):,.1f}")
-    print(f"Average output tokens per page: {output_tokens_total/max(1,pages_total):,.1f}")
+    print(f"\nAverage pages per doc: {pages_total / max(1, docs_total):,.1f}")
+    print(f"Average output tokens per doc: {output_tokens_total / max(1, docs_total):,.1f}")
+    print(f"Average output tokens per page: {output_tokens_total / max(1, pages_total):,.1f}")
 
     # Print long context documents stats
     print(f"\nLong Context Documents (>{LONG_CONTEXT_THRESHOLD} tokens): {long_context_docs_count:,}")
@@ -1077,6 +1123,18 @@ def print_stats(args, root_work_queue):
 
 
 async def main():
+    def write_text_file(path, contents):
+        with open(path, "w") as output_file:
+            output_file.write(contents)
+
+    def read_file_prefix(path, length):
+        with open(path, "rb") as input_file:
+            return input_file.read(length)
+
+    def read_text_file(path):
+        with open(path) as input_file:
+            return input_file.read()
+
     parser = argparse.ArgumentParser(description="Manager for running millions of PDFs through a batch inference pipeline.")
     parser.add_argument(
         "workspace",
@@ -1113,9 +1171,7 @@ async def main():
     vllm_group = parser.add_argument_group(
         "VLLM arguments", "These arguments are passed to vLLM. Any unrecognized arguments are also automatically forwarded to vLLM."
     )
-    vllm_group.add_argument(
-        "--gpu-memory-utilization", type=float, help="Fraction of VRAM vLLM may pre-allocate for KV-cache " "(passed through to vllm serve)."
-    )
+    vllm_group.add_argument("--gpu-memory-utilization", type=float, help="Fraction of VRAM vLLM may pre-allocate for KV-cache (passed through to vllm serve).")
     vllm_group.add_argument("--max_model_len", type=int, default=16384, help="Upper bound (tokens) vLLM will allocate KV-cache for, lower if VLLM won't start")
     vllm_group.add_argument("--tensor-parallel-size", "-tp", type=int, default=1, help="Tensor parallel size for vLLM")
     vllm_group.add_argument("--data-parallel-size", "-dp", type=int, default=1, help="Data parallel size for vLLM")
@@ -1153,12 +1209,18 @@ async def main():
     if "BEAKER_JOB_NAME" in os.environ:
         cred_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
         os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-        with open(cred_path, "w") as f:
-            f.write(os.environ.get("AWS_CREDENTIALS_FILE"))
+        await asyncio.to_thread(
+            write_text_file,
+            cred_path,
+            os.environ.get("AWS_CREDENTIALS_FILE"),
+        )
         cred_path = os.path.join(os.path.expanduser("~"), ".gcs", "credentials")
         os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-        with open(cred_path, "w") as f:
-            f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
+        await asyncio.to_thread(
+            write_text_file,
+            cred_path,
+            os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"),
+        )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
         workspace_s3 = boto3.client("s3")
         pdf_s3 = boto3.client("s3")
@@ -1203,7 +1265,7 @@ async def main():
                     or pdf_path.lower().endswith(".jpg")
                     or pdf_path.lower().endswith(".jpeg")
                 ):
-                    if open(pdf_path, "rb").read(4) == b"%PDF":
+                    if await asyncio.to_thread(read_file_prefix, pdf_path, 4) == b"%PDF":
                         logger.info(f"Loading file at {pdf_path} as PDF document")
                         pdf_work_paths.add(pdf_path)
                     elif is_png(pdf_path) or is_jpeg(pdf_path):
@@ -1213,8 +1275,8 @@ async def main():
                         logger.warning(f"File at {pdf_path} is not a valid PDF")
                 elif pdf_path.lower().endswith(".txt"):
                     logger.info(f"Loading file at {pdf_path} as list of paths")
-                    with open(pdf_path, "r") as f:
-                        pdf_work_paths |= set(filter(None, (line.strip() for line in f)))
+                    path_list = await asyncio.to_thread(read_text_file, pdf_path)
+                    pdf_work_paths |= set(filter(None, (line.strip() for line in path_list.splitlines())))
                 else:
                     raise ValueError(f"Unsupported file extension for {pdf_path}")
             else:
@@ -1238,7 +1300,7 @@ async def main():
                     else:
                         reader = PdfReader(tmp_file.name)
                         page_counts.append(len(reader.pages))
-            except Exception as e:
+            except (EOFError, OSError, ValueError) as e:
                 logger.warning(f"Failed to read {pdf}: {e}")
 
         if page_counts:

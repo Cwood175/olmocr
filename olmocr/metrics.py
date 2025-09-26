@@ -1,7 +1,7 @@
 import asyncio
 import time
 from collections import defaultdict, deque
-from typing import Any, Deque, Dict, List, Set
+from typing import Any
 
 
 class MetricsKeeper:
@@ -15,7 +15,7 @@ class MetricsKeeper:
         self.window = window  # Time window in seconds
         self.start_time = time.time()  # Timestamp when MetricsKeeper was created
         self.total_metrics = defaultdict(int)  # Cumulative metrics since start
-        self.window_metrics: Deque[Any] = deque()  # Deque to store (timestamp, metrics_dict)
+        self.window_metrics: deque[Any] = deque()  # Deque to store (timestamp, metrics_dict)
         self.window_sum = defaultdict(int)  # Sum of metrics within the window
 
     def add_metrics(self, **kwargs):
@@ -39,7 +39,7 @@ class MetricsKeeper:
 
         # Remove metrics that are outside the time window
         while self.window_metrics and self.window_metrics[0][0] < current_time - self.window:
-            old_time, old_metrics = self.window_metrics.popleft()
+            _, old_metrics = self.window_metrics.popleft()
             for key, value in old_metrics.items():
                 self.window_sum[key] -= value
                 if self.window_sum[key] <= 0:
@@ -108,7 +108,7 @@ class WorkerTracker:
         Each worker ID maps to another dictionary that holds counts for each state.
         """
         # Mapping from worker_id to a dictionary of state counts
-        self.worker_status: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.worker_status: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.lock = asyncio.Lock()
 
     async def clear_work(self, worker_id: int):
@@ -136,10 +136,10 @@ class WorkerTracker:
         """
         async with self.lock:
             # Determine all unique states across all workers
-            all_states: Set[str] = set()
+            all_states: set[str] = set()
             for states in self.worker_status.values():
                 all_states.update(states.keys())
-            sorted_states: List[str] = sorted(all_states)
+            sorted_states: list[str] = sorted(all_states)
 
             headers = ["Worker ID"] + sorted_states  # type: ignore
             rows = []

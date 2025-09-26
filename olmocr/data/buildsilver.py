@@ -3,12 +3,16 @@ import glob
 import json
 import os
 import random
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Generator
+from collections.abc import Generator
+from concurrent.futures import CancelledError, ProcessPoolExecutor, as_completed
+from contextlib import ExitStack
+from subprocess import CalledProcessError
 from urllib.parse import urlparse
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 from tqdm import tqdm
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
@@ -104,7 +108,14 @@ def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_fil
         try:
             query = build_page_query(local_pdf_path, pretty_pdf_path, page)
             result.append(query)
-        except Exception as e:
+        except (
+            CalledProcessError,
+            OSError,
+            PdfReadError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as e:
             print(f"Error processing page {page} of {pdf_path}: {e}")
 
     return result
@@ -189,58 +200,66 @@ def main():
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Open the first file for writing
-    cur_file = open(cur_file_path, "w")
+    with ExitStack() as stack:
+        # Open the first file for writing
+        cur_file = stack.enter_context(open(cur_file_path, "w"))
 
-    # Counter to track PDFs that produce at least one output
-    pdfs_with_output = 0
+        # Counter to track PDFs that produce at least one output
+        pdfs_with_output = 0
 
-    # Using ThreadPoolExecutor to process files concurrently
-    with ProcessPoolExecutor() as executor:
-        futures = []
+        # Using ThreadPoolExecutor to process files concurrently
+        with ProcessPoolExecutor() as executor:
+            futures = []
 
-        with tqdm(desc="Processing PDFs", leave=False, total=args.num_sample_docs) as pb:
-            for pdf_path in pdf_paths:
-                futures.append(executor.submit(process_pdf, pdf_path, args.first_n_pages, args.max_sample_pages, args.no_filter))
+            with tqdm(desc="Processing PDFs", leave=False, total=args.num_sample_docs) as pb:
+                for pdf_path in pdf_paths:
+                    futures.append(executor.submit(process_pdf, pdf_path, args.first_n_pages, args.max_sample_pages, args.no_filter))
 
-            for future in as_completed(futures):
-                has_output = False  # Track if the current PDF produces at least one request
-                try:
-                    request_results = future.result()  # Get the result from the thread
+                for future in as_completed(futures):
+                    has_output = False  # Track if the current PDF produces at least one request
+                    try:
+                        request_results = future.result()  # Get the result from the thread
 
-                    for request_obj in request_results:
-                        request_json = json.dumps(request_obj)
-                        request_size = len(request_json.encode("utf-8"))  # Calculate size in bytes
+                        for request_obj in request_results:
+                            request_json = json.dumps(request_obj)
+                            request_size = len(request_json.encode("utf-8"))  # Calculate size in bytes
 
-                        # Check if the current request can fit in the current file
-                        if cur_file_size + request_size > max_file_size:
-                            # Close the current file and create a new one
-                            cur_file.close()
-                            cur_file_num += 1
-                            cur_file_path = os.path.join(output_dir, f"output_{cur_file_num}.jsonl")
-                            cur_file = open(cur_file_path, "w")
-                            cur_file_size = 0  # Reset file size
+                            # Check if the current request can fit in the current file
+                            if cur_file_size + request_size > max_file_size:
+                                # Close the current file and create a new one
+                                cur_file.close()
+                                cur_file_num += 1
+                                cur_file_path = os.path.join(output_dir, f"output_{cur_file_num}.jsonl")
+                                cur_file = stack.enter_context(open(cur_file_path, "w"))
+                                cur_file_size = 0  # Reset file size
 
-                        # Write the JSON entry to the file
-                        cur_file.write(request_json)
-                        cur_file.write("\n")
-                        cur_file_size += request_size
+                            # Write the JSON entry to the file
+                            cur_file.write(request_json)
+                            cur_file.write("\n")
+                            cur_file_size += request_size
 
-                        has_output = True  # At least one request object was generated
+                            has_output = True  # At least one request object was generated
 
-                    if has_output:
-                        pdfs_with_output += 1
-                        pb.update(1)
+                        if has_output:
+                            pdfs_with_output += 1
+                            pb.update(1)
 
-                        if pdfs_with_output >= args.num_sample_docs:
-                            executor.shutdown(cancel_futures=True)
-                            break
+                            if pdfs_with_output >= args.num_sample_docs:
+                                executor.shutdown(cancel_futures=True)
+                                break
 
-                except Exception as e:
-                    print(f"Error processing {pdf_path}: {str(e)}")
-
-    # Close the last open file
-    cur_file.close()
+                    except (
+                        BotoCoreError,
+                        CalledProcessError,
+                        CancelledError,
+                        ClientError,
+                        OSError,
+                        PdfReadError,
+                        RuntimeError,
+                        TypeError,
+                        ValueError,
+                    ) as e:
+                        print(f"Error processing {pdf_path}: {e!s}")
 
     # Print or log the number of PDFs that resulted in at least one output
     print(f"Number of sampled PDFs that produced at least one output: {pdfs_with_output}")

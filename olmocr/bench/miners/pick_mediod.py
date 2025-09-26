@@ -16,7 +16,6 @@ import glob
 import os
 import re
 import shutil
-from typing import Dict, List
 
 from rapidfuzz import distance as fuzz_distance
 from tqdm import tqdm
@@ -31,7 +30,7 @@ def compute_distance(text1: str, text2: str) -> float:
     return fuzz_distance.Levenshtein.normalized_distance(text1, text2)
 
 
-def find_mediod(texts: List[str]) -> int:
+def find_mediod(texts: list[str]) -> int:
     """
     Find the index of the mediod from a list of texts.
     The mediod is the text with the minimum average distance to all other texts.
@@ -124,7 +123,7 @@ def main():
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     texts.append(f.read())
-            except Exception as e:
+            except (OSError, UnicodeError) as e:
                 print(f"Error reading {path}: {e}")
                 continue
 
@@ -152,7 +151,7 @@ def main():
         try:
             shutil.copy2(mediod_path, output_path)
             successful += 1
-        except Exception as e:
+        except OSError as e:
             print(f"Error copying {mediod_path} to {output_path}: {e}")
 
     print(f"Processing complete: {successful} mediods copied, {skipped} cases skipped")

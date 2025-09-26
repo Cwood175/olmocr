@@ -8,11 +8,11 @@ import re
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
 
 import pypdf
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 from bs4 import BeautifulSoup
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 from syntok.segmenter import process
 from tqdm import tqdm
@@ -27,7 +27,12 @@ from olmocr.data.renderpdf import (
 def download_s3_pdf(s3_path, local_path):
     """Download a PDF from S3 to a local path."""
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    result = subprocess.run(["aws", "s3", "cp", s3_path, local_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        ["aws", "s3", "cp", s3_path, local_path],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return result.returncode == 0
 
 
@@ -131,7 +136,7 @@ def generate_html_from_image(client, image_base64):
                 initial_html += content.text
 
         return extract_code_block(initial_html)
-    except Exception as e:
+    except (APIError, AttributeError, TypeError) as e:
         print(f"Error calling Claude API: {e}")
         return None
 
@@ -172,8 +177,8 @@ def extract_page_from_pdf(input_path, output_path, page_num):
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except (pypdf.errors.PyPdfError, OSError) as e:
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         return False
 
 
@@ -246,19 +251,24 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
                     else:
                         print(f"PDF has {len(reader.pages)} pages with scale factor {scale}, trying a smaller scale...")
                         # Continue to the next scale factor
-                except Exception as pdf_check_error:
+                except (pypdf.errors.PyPdfError, OSError) as pdf_check_error:
                     print(f"Error checking PDF page count: {pdf_check_error}")
                     return False
 
-        except Exception as e:
-            print(f"Error rendering PDF with Playwright at scale {scale}: {str(e)}")
+        except (PlaywrightError, OSError) as e:
+            print(f"Error rendering PDF with Playwright at scale {scale}: {e!s}")
             # Try the next scale factor
 
     print("Failed to render PDF as a single page with any scale factor")
     return False
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verbose_table_testing: bool = False) -> List[Dict]:
+def generate_tests_from_html(
+    html_content: str,
+    pdf_id: str,
+    page_num: int,
+    verbose_table_testing: bool = False,
+) -> list[dict]:
     """
     Generate tests from HTML content parsed from the PDF.
 
@@ -589,7 +599,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
                     table_html = str(tables[table_idx])
 
                     # Run the test against the original HTML
-                    passed, explanation = test_obj.run(table_html)
+                    passed, _ = test_obj.run(table_html)
                 else:
                     # Shouldn't happen, but handle it gracefully
                     passed = False
@@ -618,11 +628,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, verb
     for paragraph in process(full_text):
         for sentence in paragraph:
             # Convert token sequence to string and clean it
-            sentence_str = ""
-            for token in sentence:
-                sentence_str += token.spacing + token.value
-
-            sentence_str = sentence_str.strip()
+            sentence_str = "".join(token.spacing + token.value for token in sentence).strip()
 
             if sentence_str:
                 sentences.append(sentence_str)
@@ -934,8 +940,7 @@ def main():
                     with file_lock:
                         # Append each test as a separate JSON line
                         with open(synthetic_json_path, "a") as f:
-                            for test in result["tests"]:
-                                f.write(json.dumps(test) + "\n")
+                            f.writelines(json.dumps(test) + "\n" for test in result["tests"])
 
                         # Update counters
                         test_counter += len(result["tests"])

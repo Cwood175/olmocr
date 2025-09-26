@@ -1,9 +1,12 @@
-from typing import List, Tuple
-
 import numpy as np
 
 
-def calculate_bootstrap_ci(test_scores: List[float], n_bootstrap: int = 1000, ci_level: float = 0.95, splits: List[int] = None) -> Tuple[float, float]:
+def calculate_bootstrap_ci(
+    test_scores: list[float],
+    n_bootstrap: int = 1000,
+    ci_level: float = 0.95,
+    splits: list[int] | None = None,
+) -> tuple[float, float]:
     """
     Calculate bootstrap confidence interval for test scores, respecting category splits.
 
@@ -68,8 +71,12 @@ def calculate_bootstrap_ci(test_scores: List[float], n_bootstrap: int = 1000, ci
 
 
 def perform_permutation_test(
-    scores_a: List[float], scores_b: List[float], n_permutations: int = 10000, splits_a: List[int] = None, splits_b: List[int] = None
-) -> Tuple[float, float]:
+    scores_a: list[float],
+    scores_b: list[float],
+    n_permutations: int = 10000,
+    splits_a: list[int] | None = None,
+    splits_b: list[int] | None = None,
+) -> tuple[float, float]:
     """
     Perform a permutation test to determine if there's a significant difference
     between two sets of test scores.

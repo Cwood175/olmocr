@@ -20,7 +20,6 @@ import sqlite3
 import threading
 import unittest
 from dataclasses import dataclass
-from typing import List, Optional
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -29,7 +28,7 @@ from playwright.sync_api import sync_playwright
 
 
 class EquationCache:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         if db_path is None:
             # Use the same cache directory as before
             cache_dir = pathlib.Path.home() / ".cache" / "olmocr" / "bench" / "equations"
@@ -57,7 +56,7 @@ class EquationCache:
             conn.commit()
             conn.close()
 
-    def load(self, eq_hash: str) -> Optional["RenderedEquation"]:
+    def load(self, eq_hash: str) -> "RenderedEquation | None":
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
@@ -146,8 +145,8 @@ class SpanInfo:
 @dataclass
 class RenderedEquation:
     mathml: str
-    spans: List[SpanInfo]
-    error: Optional[str] = None  # New field to store error messages if rendering fails
+    spans: list[SpanInfo]
+    error: str | None = None  # New field to store error messages if rendering fails
 
 
 def get_equation_hash(equation, bg_color="white", text_color="black", font_size=24):
@@ -365,6 +364,7 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
     If not, perform a neighbor-based matching on the spans.
     """
     from bs4 import BeautifulSoup
+    from bs4.exceptions import FeatureNotFound, ParserRejectedMarkup
 
     def extract_inner(mathml: str) -> str:
         try:
@@ -375,7 +375,7 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
                 return "".join(inner_parts)
             else:
                 return str(soup)
-        except Exception as e:
+        except (FeatureNotFound, ParserRejectedMarkup) as e:
             print("Error parsing MathML with BeautifulSoup:", e)
             print(mathml)
             return mathml
@@ -470,22 +470,20 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
             for direction in ["up", "down", "left", "right"]:
                 hyp_nb = hyp_neighbors[i].get(direction)
                 ref_nb = ref_neighbors[cand].get(direction)
-                if hyp_nb is not None:
-                    expected_text = H[hyp_nb].text
-                    if ref_nb is None:
-                        valid = False
-                        break
-                    if hyp_nb in assignment:
-                        if assignment[hyp_nb] != ref_nb:
-                            valid = False
-                            break
-                    else:
-                        if R[ref_nb].text != expected_text:
-                            valid = False
-                            break
-            if valid:
-                if backtrack(i + 1):
-                    return True
+                if hyp_nb is None:
+                    continue
+                expected_text = H[hyp_nb].text
+                if ref_nb is None:
+                    valid = False
+                    break
+                if hyp_nb in assignment and assignment[hyp_nb] != ref_nb:
+                    valid = False
+                    break
+                if hyp_nb not in assignment and R[ref_nb].text != expected_text:
+                    valid = False
+                    break
+            if valid and backtrack(i + 1):
+                return True
             used[cand] = False
             del assignment[i]
         return False
@@ -520,9 +518,15 @@ class TestRenderedEquationComparison(unittest.TestCase):
         self.assertFalse(compare_rendered_equations(eq_diff, eq_align))
 
     def test_big(self):
-        ref_rendered = render_equation("\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}", use_cache=False, debug_dom=False)
+        ref_rendered = render_equation(
+            "\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}",
+            use_cache=False,
+            debug_dom=False,
+        )
         align_rendered = render_equation(
-            """\\begin{align*}\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}\\end{align*}""", use_cache=False, debug_dom=False
+            """\\begin{align*}\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}\\end{align*}""",
+            use_cache=False,
+            debug_dom=False,
         )
         self.assertTrue(compare_rendered_equations(ref_rendered, align_rendered))
 
@@ -607,16 +611,25 @@ class TestRenderedEquationComparison(unittest.TestCase):
         self.assertFalse(compare_rendered_equations(eq1, eq2))
 
     def test_assert_subtle_square_root(self):
-        eq1 = render_equation("A N'P' = \\int \\beta d\\alpha = \\frac{2}{3\\sqrt{3} a}\\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha", use_cache=False)
+        eq1 = render_equation(
+            "A N'P' = \\int \\beta d\\alpha = \\frac{2}{3\\sqrt{3} a}\\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha",
+            use_cache=False,
+        )
         eq2 = render_equation("AN'P' = \\int \\beta \\, d\\alpha = \\frac{2}{3 \\sqrt{3a}} \\int (a - 2a)^{\\frac{3}{2}} d\\alpha")
         self.assertFalse(compare_rendered_equations(eq1, eq2))
 
     def test_text_added(self):
-        eq1 = render_equation("A N'P' = \\int \\beta d\\alpha = \\frac{2}{3\\sqrt{3} a}\\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha", use_cache=False)
+        eq1 = render_equation(
+            "A N'P' = \\int \\beta d\\alpha = \\frac{2}{3\\sqrt{3} a}\\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha",
+            use_cache=False,
+        )
         eq2 = render_equation("AN'P' = \\int \\beta  d\\alpha = \\frac{2}{3 \\sqrt{3} a} \\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha")
         self.assertTrue(compare_rendered_equations(eq1, eq2))
 
-        eq1 = render_equation("A N'P' = \\int \\beta d\\alpha = \\frac{2}{3\\sqrt{3} a}\\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha", use_cache=False)
+        eq1 = render_equation(
+            "A N'P' = \\int \\beta d\\alpha = \\frac{2}{3\\sqrt{3} a}\\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha",
+            use_cache=False,
+        )
         eq2 = render_equation("\\text{area evolute } AN'P' = \\int \\beta  d\\alpha = \\frac{2}{3 \\sqrt{3} a} \\int (\\alpha - 2a)^{\\frac{3}{2}} d\\alpha")
         self.assertTrue(compare_rendered_equations(eq1, eq2))
 
