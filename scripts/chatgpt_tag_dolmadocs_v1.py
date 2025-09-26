@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Rich Autoscan Dolma Documents with ChatGPT Vision
 
@@ -7,6 +6,7 @@ This script combines the functionality of autoscan_dolmadocs.py and rich_tagging
 2. Creates attribute folders mirroring the document structure
 3. Simplifies with direct ThreadPoolExecutor usage instead of work queue system
 """
+
 import argparse
 import gzip
 import json
@@ -16,7 +16,6 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 import boto3
 import pydantic
@@ -123,7 +122,7 @@ class PIIAnnotation(pydantic.BaseModel):
         ]
         return any(pii_fields) or bool(self.other_pii.strip())
 
-    def get_pii_types(self) -> List[str]:
+    def get_pii_types(self) -> list[str]:
         """Get a list of all PII types found in the document"""
         pii_types = []
 
@@ -219,7 +218,7 @@ def load_document_file(s3_client, file_path):
         # Decompress if needed
         if file_path.endswith(".gz"):
             file_bytes = gzip.decompress(raw)
-        elif file_path.endswith(".zst") or file_path.endswith(".ztd") or file_path.endswith(".zstd"):
+        elif file_path.endswith((".zst", ".ztd", ".zstd")):
             dctx = zstd.ZstdDecompressor()
             file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
         else:
@@ -227,7 +226,7 @@ def load_document_file(s3_client, file_path):
 
         # Return the decoded lines
         return file_bytes.decode("utf-8").strip().split("\n")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error loading file {file_path}: {e}")
         return []
 
@@ -279,7 +278,7 @@ def get_document_info_from_line(line, file_path, line_index):
     except json.JSONDecodeError:
         logger.warning(f"Invalid JSON in {file_path} line {line_index}")
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Error processing document in {file_path} line {line_index}: {e}")
         return None
 
@@ -310,7 +309,7 @@ def get_all_pages(s3_client, document_files):
     return file_contents
 
 
-def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> Optional[PIIAnnotation]:
+def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> PIIAnnotation | None:
     """Analyze a page using the ChatGPT vision model with structured outputs."""
     try:
         # Download PDF to temp file and render to image
@@ -380,7 +379,7 @@ Only consider actual occurrences of the PII within the document shown.
 
         return completion.choices[0].message.parsed
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error analyzing page {pdf_path} (page {page_num}): {e}")
         return None
 
@@ -532,7 +531,7 @@ def write_attribute_file(args, processed_docs, file_documents, workspace_s3):
                     fh.write(payload)
                 logger.info(f"Wrote {len(file_entries)} attribute entries to {out_path}")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error writing attributes for {source_file}: {e}")
             continue
 
@@ -631,7 +630,7 @@ def main():
                     try:
                         result = future.result()
                         results.append(result)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.error(f"Error processing document: {e}")
 
             # Save results for this batch

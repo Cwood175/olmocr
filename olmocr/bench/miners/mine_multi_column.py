@@ -23,7 +23,6 @@ import re
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
 
 import pypdf
 from anthropic import Anthropic
@@ -119,12 +118,12 @@ def generate_html_from_image(client, image_base64):
                 initial_html += content.text
 
         return extract_code_block(initial_html)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error calling Claude API: {e}")
         return None
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> List[Dict]:
+def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> list[dict]:
     """
     Generate order tests from HTML content by splitting the main text into sentences and pairing them.
     Only order tests are generated.
@@ -205,8 +204,8 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
                     """
                     renderMathInElement(document.body, {
                         delimiters: [
-                            {left: '\\\$begin:math:text$', right: '\\\\\\$end:math:text$', display: false},
-                            {left: '\\\$begin:math:display$', right: '\\\\\\$end:math:display$', display: true}
+                            {left: '\\\\(', right: '\\\\)', display: false},
+                            {left: '\\\\[', right: '\\\\]', display: true}
                         ],
                         throwOnError: false
                     });
@@ -223,11 +222,11 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
                         return True
                     else:
                         print(f"PDF has {len(reader.pages)} pages with scale factor {scale}, trying a smaller scale...")
-                except Exception as pdf_check_error:
+                except Exception as pdf_check_error:  # noqa: BLE001
                     print(f"Error checking PDF page count: {pdf_check_error}")
                     return False
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error rendering PDF with Playwright at scale {scale}: {e}")
     print("Failed to render PDF as a single page with any scale factor")
     return False
@@ -242,7 +241,7 @@ def process_pdf(pdf_info, args, client):
       - Optionally render the HTML to a PDF using Playwright.
       - Generate order tests from the HTML.
     """
-    local_pdf_path, index = pdf_info
+    local_pdf_path, _index = pdf_info
     original_pdf_name = os.path.basename(local_pdf_path)
     pdf_id = original_pdf_name
     temp_pdf_dir = os.path.join(args.temp_dir, f"{os.path.splitext(original_pdf_name)[0]}")
@@ -255,13 +254,13 @@ def process_pdf(pdf_info, args, client):
             print(f"PDF has no pages: {local_pdf_path}")
             return None
         page_num = random.randint(1, num_pages)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error reading {local_pdf_path}: {e}")
         return None
 
     try:
         image_base64 = render_pdf_to_base64png(local_pdf_path, page_num, target_longest_image_dim=2048)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error rendering page {page_num} from {local_pdf_path}: {e}")
         return None
 
@@ -270,7 +269,7 @@ def process_pdf(pdf_info, args, client):
         if not html_content:
             print(f"Failed to generate HTML for {local_pdf_path}, page {page_num}")
             return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error generating HTML for {local_pdf_path}: {e}")
         return None
 
@@ -283,7 +282,7 @@ def process_pdf(pdf_info, args, client):
     try:
         with open(html_path, "w") as f:
             f.write(html_content)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error saving HTML for {local_pdf_path}: {e}")
         return None
 
@@ -300,7 +299,7 @@ def process_pdf(pdf_info, args, client):
             else:
                 print(f"Failed to render as a single page PDF: {playwright_pdf_path}")
                 playwright_pdf_path = None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Failed to render with Playwright: {e}")
             playwright_pdf_path = None
             render_success = False
@@ -314,8 +313,8 @@ def process_pdf(pdf_info, args, client):
 
     try:
         if os.path.exists(temp_pdf_dir):
-            subprocess.run(["rm", "-rf", temp_pdf_dir])
-    except Exception as e:
+            subprocess.run(["rm", "-rf", temp_pdf_dir], check=False)
+    except Exception as e:  # noqa: BLE001
         print(f"Error cleaning up temp directory {temp_pdf_dir}: {e}")
 
     return {
@@ -382,14 +381,13 @@ def main():
                     results.append(result)
                     with file_lock:
                         with open(synthetic_json_path, "a") as f:
-                            for test in result["tests"]:
-                                f.write(json.dumps(test) + "\n")
+                            f.writelines(json.dumps(test) + "\n" for test in result["tests"])
                         test_counter += len(result["tests"])
                         for test in result["tests"]:
                             if test.get("type") == "order":
                                 test_types["order"] += 1
                         print(f"Added {len(result['tests'])} tests from {result['pdf_id']}, total: {test_counter}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Error processing {pdf_path}: {e}")
 
     print(f"Generated {len(results)} HTML templates")

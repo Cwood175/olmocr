@@ -4,7 +4,6 @@
 # Searching for:
 # <a href="/pdf/2503.08675" title="Download PDF" id="pdf-2503.08675" aria-labelledby="pdf-2503.08675">pdf</a>
 # a math_data folder
-#!/usr/bin/env python3
 import argparse
 import io
 import os

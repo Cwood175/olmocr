@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Tagging pipeline for Dolma JSONL datasets.
 
@@ -70,8 +69,8 @@ metrics = MetricsKeeper(window=60 * 5)
 class PIIClassification(BaseModel):
     primary_language: str = Field(..., description="Primary language as a two-letter code")
     document_type: str = Field(..., description="Basic summary of document type classification")
-    is_resume_cv: Optional[bool] = Field(..., description="True if the document is a page from a resume or cv")
-    contains_pii: Optional[bool] = Field(..., description="True if document contains PII")
+    is_resume_cv: bool | None = Field(..., description="True if the document is a page from a resume or cv")
+    contains_pii: bool | None = Field(..., description="True if document contains PII")
 
 
 async def _process_single_page(page_text: str) -> PIIClassification:
@@ -104,7 +103,7 @@ async def _process_single_page(page_text: str) -> PIIClassification:
     # ---------- HTTP call ---------------------------------------------------
     try:
         status, body = await apost(url, json_data=query)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Server network error: {e!s}")
         metrics.add_metrics(server_errors=1)
         return PIIClassification(primary_language="en", document_type="unknown", is_resume_cv=None, contains_pii=None)
@@ -205,17 +204,14 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
     finally:
-        # But just make sure to close the socket on your way out
+        # Make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except OSError as close_err:
+                logger.debug(f"Error closing writer: {close_err!s}")
 
 
 async def process_dolma_document(args, dolma_doc, sem):
@@ -274,6 +270,21 @@ async def process_dolma_document(args, dolma_doc, sem):
         raise NotImplementedError("Missing code here, expecting this to be dolma docs made by olmocr....")
 
 
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _write_bytes(path: str, data: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def _write_text(path: str, text: str) -> None:
+    with open(path, "w") as f:
+        f.write(text)
+
+
 async def process_file(args, worker_id: int, file_uri: str):
     """
     Download a JSONL file, query model per record, and collect attributes.
@@ -282,13 +293,12 @@ async def process_file(args, worker_id: int, file_uri: str):
     if file_uri.startswith("s3://"):
         raw = await asyncio.to_thread(get_s3_bytes_with_backoff, dataset_s3, file_uri)
     else:
-        with open(file_uri, "rb") as f:
-            raw = f.read()
+        raw = await asyncio.to_thread(_read_bytes, file_uri)
 
     # Decompress if needed
     if file_uri.endswith(".gz"):
         file_bytes = gzip.decompress(raw)
-    elif file_uri.endswith(".ztd") or file_uri.endswith(".zst") or file_uri.endswith(".zstd"):
+    elif file_uri.endswith((".ztd", ".zst", ".zstd")):
         dctx = zstd.ZstdDecompressor()
         file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
     else:
@@ -370,8 +380,7 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             else:
                 out_path = os.path.join(args.dataset, out_rel)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with open(out_path, "wb") as fh:
-                    fh.write(payload)
+                await asyncio.to_thread(_write_bytes, out_path, payload)
 
             # 4. Mark queue item done
             await work_queue.mark_done(work_item)
@@ -385,10 +394,10 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             else:
                 sentinel_path = os.path.join(args.scratch, sentinel_rel)
                 os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
-                open(sentinel_path, "w").close()
+                await asyncio.to_thread(_write_bytes, sentinel_path, b"")
 
-        except Exception as exc:
-            logger.exception(f"Worker {worker_id} exception: {exc!s}")
+        except Exception:
+            logger.exception(f"Worker {worker_id} exception")
         finally:
             semaphore.release()
 
@@ -455,7 +464,7 @@ async def server_task(model_name_or_path, args, semaphore):
             try:
                 line = line.decode("utf-8").rstrip()
                 await process_line(line)
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
                 logger.warning(f"Got {ex} when reading log line from inference server, skipping")
 
     async def timeout_task():
@@ -517,16 +526,16 @@ async def check_server_ready():
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
+        except (httpx.HTTPError, OSError):
             logger.warning(f"Attempt {attempt}: Please wait for model server to become ready...")
 
         await asyncio.sleep(delay_sec)
 
-    raise Exception("model server did not become ready after waiting.")
+    raise TimeoutError("model server did not become ready after waiting.")
 
 
 async def download_model(model_name_or_path: str):
-    if model_name_or_path.startswith("s3://") or model_name_or_path.startswith("gs://") or model_name_or_path.startswith("weka://"):
+    if model_name_or_path.startswith(("s3://", "gs://", "weka://")):
         logger.info(f"Downloading model directory from '{model_name_or_path}'")
         model_cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "olmocr", "model")
         download_directory([model_name_or_path], model_cache_dir)
@@ -591,9 +600,11 @@ def submit_beaker_job(args):
 
         b.secret.write(f"{owner}-WEKA_ACCESS_KEY_ID", os.environ.get("WEKA_ACCESS_KEY_ID", ""), args.beaker_workspace)
         b.secret.write(f"{owner}-WEKA_SECRET_ACCESS_KEY", os.environ.get("WEKA_SECRET_ACCESS_KEY", ""), args.beaker_workspace)
+        with open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")) as f:
+            aws_credentials = f.read()
         b.secret.write(
             f"{owner}-AWS_CREDENTIALS_FILE",
-            open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")).read(),
+            aws_credentials,
             args.beaker_workspace,
         )
 
@@ -689,13 +700,11 @@ async def main():
         if "AWS_CREDENTIALS_FILE" in os.environ:
             cred_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
             os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("AWS_CREDENTIALS_FILE"))
+            await asyncio.to_thread(_write_text, cred_path, os.environ.get("AWS_CREDENTIALS_FILE"))
         if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
             cred_path = os.path.join(os.path.expanduser("~"), ".gcs", "credentials")
             os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
+            await asyncio.to_thread(_write_text, cred_path, os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
         workspace_s3 = boto3.client("s3")
         dataset_s3 = boto3.client("s3")

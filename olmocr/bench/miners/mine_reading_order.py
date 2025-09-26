@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 analyze_documents.py - Analyze document layout and extract content from PDF documents.
 
@@ -20,7 +19,7 @@ import json
 import os
 import random
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import boto3
 import pypdf
@@ -61,8 +60,8 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
-        print(f"Error downloading {s3_path}: {str(e)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Error downloading {s3_path}: {e!s}")
         return False
 
 
@@ -100,11 +99,11 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
 
         return True
     except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         raise
 
 
-def analyze_document_layout(pdf_path: str, page_num: int, api_key: str) -> Optional[Tuple[Dict[str, Any], str]]:
+def analyze_document_layout(pdf_path: str, page_num: int, api_key: str) -> tuple[dict[str, Any], str] | None:
     """
     Use Gemini to analyze document layout features in a rendered PDF page.
 
@@ -127,8 +126,8 @@ def analyze_document_layout(pdf_path: str, page_num: int, api_key: str) -> Optio
     # Render the PDF page as an image (render_pdf_to_base64png is 1-indexed)
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)
-    except Exception as e:
-        print(f"Error rendering PDF page: {str(e)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Error rendering PDF page: {e!s}")
         return None
 
     image_part = types.Part(inline_data=types.Blob(mime_type="image/png", data=base64.b64decode(image_base64)))
@@ -218,12 +217,12 @@ def analyze_document_layout(pdf_path: str, page_num: int, api_key: str) -> Optio
         # Return both the layout analysis and the rendered image (base64 string)
         return (layout_analysis, image_base64)
 
-    except Exception as e:
-        print(f"Error analyzing document layout in {pdf_path} page {page_num}: {str(e)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Error analyzing document layout in {pdf_path} page {page_num}: {e!s}")
         return None
 
 
-def extract_document_content(pdf_path: str, page_num: int, image_base64: str, api_key: str) -> Optional[str]:
+def extract_document_content(pdf_path: str, page_num: int, image_base64: str, api_key: str) -> str | None:
     """
     Use Gemini to extract full document content from a rendered PDF page.
 
@@ -281,12 +280,12 @@ def extract_document_content(pdf_path: str, page_num: int, image_base64: str, ap
         content = response.candidates[0].content.parts[0].text
         return content
 
-    except Exception as e:
-        print(f"Error extracting document content from {pdf_path} page {page_num}: {str(e)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Error extracting document content from {pdf_path} page {page_num}: {e!s}")
         return None
 
 
-def should_extract_full_content(layout_analysis: Dict[str, Any]) -> bool:
+def should_extract_full_content(layout_analysis: dict[str, Any]) -> bool:
     """
     Determine if full content extraction is needed based on layout analysis results.
 
@@ -327,7 +326,7 @@ def should_extract_full_content(layout_analysis: Dict[str, Any]) -> bool:
     return False
 
 
-def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> Dict:
+def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> dict:
     """
     Process a single PDF from S3.
 
@@ -414,16 +413,16 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> D
 
         return results
 
-    except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
-        return {"error": f"Error processing {pdf_filename}: {str(e)}"}
+    except Exception as e:  # noqa: BLE001
+        print(f"Error processing {pdf_filename}: {e!s}")
+        return {"error": f"Error processing {pdf_filename}: {e!s}"}
     finally:
         # Cleanup
         if os.path.exists(local_pdf_path):
             os.remove(local_pdf_path)
 
 
-def process_pdfs_parallel(s3_paths: List[str], temp_dir: str, output_dir: str, api_key: str, max_docs: int, num_workers: int):
+def process_pdfs_parallel(s3_paths: list[str], temp_dir: str, output_dir: str, api_key: str, max_docs: int, num_workers: int):
     """
     Process PDFs in parallel using a thread pool.
 
@@ -458,9 +457,8 @@ def process_pdfs_parallel(s3_paths: List[str], temp_dir: str, output_dir: str, a
                 result = future.result()
 
                 # Add to summary file
-                with file_lock:
-                    with open(summary_file, "a") as f:
-                        f.write(json.dumps(result) + "\n")
+                with file_lock, open(summary_file, "a") as f:
+                    f.write(json.dumps(result) + "\n")
 
                 # Increment counter if no error
                 if "error" not in result:
@@ -476,7 +474,7 @@ def process_pdfs_parallel(s3_paths: List[str], temp_dir: str, output_dir: str, a
                             f.cancel()
                     break
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Task for {os.path.basename(s3_path)} generated an exception: {e}")
 
 

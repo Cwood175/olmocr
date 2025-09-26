@@ -89,8 +89,7 @@ def download_file_from_hf(filename: str, destination_dir: str, hf_base_url: str)
     response.raise_for_status()
 
     with open(local_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+        f.writelines(response.iter_content(chunk_size=8192))
 
     print(f"Downloaded {filename}")
 
@@ -426,7 +425,7 @@ def main():
 
     try:
         prepare_checkpoints(sources, destination)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"\n❌ Error: {e}")
         return 1
 
@@ -434,4 +433,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())

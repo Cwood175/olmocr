@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Batch VLM inference comparison between vLLM and HuggingFace.
 Processes prompts and images from WildVision-bench until finding significant mismatch.
@@ -13,7 +12,7 @@ import random
 import shutil
 import tempfile
 from io import BytesIO
-from typing import Dict, List
+from typing import Any
 
 import numpy as np
 import PIL.Image
@@ -31,7 +30,7 @@ logger = logging.getLogger(__name__)
 async def download_model(model_name_or_path: str, max_retries: int = 5):
     for retry in range(max_retries):
         try:
-            if model_name_or_path.startswith("s3://") or model_name_or_path.startswith("gs://") or model_name_or_path.startswith("weka://"):
+            if model_name_or_path.startswith(("s3://", "gs://", "weka://")):
                 logger.info(f"Downloading model directory from '{model_name_or_path}'")
                 model_cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "olmocr", "model")
                 # Delete existing model cache directory if it exists
@@ -61,7 +60,7 @@ def image_to_base64_data_url(image):
     return f"data:image/png;base64,{img_str}"
 
 
-async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> List[Dict[str, str]]:
+async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> list[dict[str, str]]:
     """Load prompts and images from olmOCR-mix-0225-benchmarkset dataset with fixed random seed."""
     print(f"Loading olmOCR-mix-0225-benchmarkset dataset with {num_samples} samples and seed {seed}")
 
@@ -105,7 +104,7 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
                 # Build page query for page 1 of each PDF
                 query = await build_page_query(local_pdf_path=local_pdf_path, page=1, target_longest_image_dim=1280, image_rotation=0)
                 queries.append(query)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Error processing {os.path.basename(pdf_file)}: {e}")
                 continue
 
@@ -113,7 +112,7 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
         return queries
 
 
-def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, sampling_params, device, args):
+def process_single_prompt(sample: dict[str, Any], llm, hf_model, processor, sampling_params, device, args):
     """Process a single prompt with image and return comparison results."""
     # Track if we found the first mismatch for max_prob_first_diff
     found_first_mismatch = False
@@ -233,13 +232,12 @@ def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, samp
             match = "✓" if token_id == hf_argmax else "✗"
 
             # Track first mismatch and probability difference
-            if token_id != hf_argmax:
-                if first_mismatch_idx is None:
-                    first_mismatch_idx = pos - len(prompt_token_ids)
-                    # Calculate probability difference only for the first mismatch
-                    if vllm_prob is not None and not found_first_mismatch:
-                        max_prob_first_diff = abs(vllm_prob - hf_prob)
-                        found_first_mismatch = True
+            if token_id != hf_argmax and first_mismatch_idx is None:
+                first_mismatch_idx = pos - len(prompt_token_ids)
+                # Calculate probability difference only for the first mismatch
+                if vllm_prob is not None and not found_first_mismatch:
+                    max_prob_first_diff = abs(vllm_prob - hf_prob)
+                    found_first_mismatch = True
 
             # Decode HF argmax token (only show if mismatch)
             hf_token_str = ""
@@ -252,7 +250,7 @@ def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, samp
             print(f"{pos:>4} {token_id:>8} {token_str:>20} {token_type:>8} {vllm_prob_str:>12} {'':>10} {'':>12} {'':>6} {'':<20}")
 
     # Summary
-    print(f"\n=== Summary ===")
+    print("\n=== Summary ===")
     print(f"Total tokens generated: {len(generated_token_ids)}")
 
     # Calculate match rate

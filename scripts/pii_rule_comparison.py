@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Compare PII Detection Rules and Calculate IoU
 
@@ -85,8 +84,6 @@ class Token:
 
 class ExpressionNode:
     """Base class for expression tree nodes"""
-
-    pass
 
 
 class RuleNode(ExpressionNode):
@@ -229,39 +226,18 @@ def list_jsonl_files(path, s3_client=None, recursive=False):
             if "Contents" in page:
                 for obj in page["Contents"]:
                     key = obj["Key"]
-                    if (
-                        key.endswith(".jsonl")
-                        or key.endswith(".json")
-                        or key.endswith(".jsonl.gz")
-                        or key.endswith(".jsonl.zst")
-                        or key.endswith(".jsonl.ztd")
-                        or key.endswith(".jsonl.zstd")
-                    ):
+                    if key.endswith((".jsonl", ".json", ".jsonl.gz", ".jsonl.zst", ".jsonl.ztd", ".jsonl.zstd")):
                         jsonl_files.append(f"s3://{bucket}/{key}")
     else:
         # Local file system
         path_obj = Path(path)
         if recursive:
             for file_path in path_obj.rglob("*"):
-                if (
-                    file_path.name.endswith(".jsonl")
-                    or file_path.name.endswith(".json")
-                    or file_path.name.endswith(".jsonl.gz")
-                    or file_path.name.endswith(".jsonl.zst")
-                    or file_path.name.endswith(".jsonl.ztd")
-                    or file_path.name.endswith(".jsonl.zstd")
-                ):
+                if file_path.name.endswith((".jsonl", ".json", ".jsonl.gz", ".jsonl.zst", ".jsonl.ztd", ".jsonl.zstd")):
                     jsonl_files.append(str(file_path))
         else:
             for file_path in path_obj.glob("*"):
-                if (
-                    file_path.name.endswith(".jsonl")
-                    or file_path.name.endswith(".json")
-                    or file_path.name.endswith(".jsonl.gz")
-                    or file_path.name.endswith(".jsonl.zst")
-                    or file_path.name.endswith(".jsonl.ztd")
-                    or file_path.name.endswith(".jsonl.zstd")
-                ):
+                if file_path.name.endswith((".jsonl", ".json", ".jsonl.gz", ".jsonl.zst", ".jsonl.ztd", ".jsonl.zstd")):
                     jsonl_files.append(str(file_path))
 
     return jsonl_files
@@ -296,7 +272,7 @@ def load_jsonl_file(file_path, s3_client=None):
                     dctx = zstd.ZstdDecompressor(max_window_size=2147483648)  # Use a large window size
                     decompressor = dctx.stream_reader(io.BytesIO(raw_data))
                     decompressed = decompressor.read()
-                except Exception as inner_e:
+                except (zstd.ZstdError, OSError, ValueError) as inner_e:
                     # If both methods fail, try with chunking
                     logger.warning(f"Stream decompression also failed, trying chunked reading: {inner_e}")
 
@@ -320,7 +296,7 @@ def load_jsonl_file(file_path, s3_client=None):
         return [json.loads(line) for line in lines if line.strip()]
 
     except Exception as e:
-        logger.error(f"Error loading file {file_path}: {e}")
+        logger.exception(f"Error loading file {file_path}: {e}")
         return []
 
 
@@ -412,10 +388,9 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                     if "id" in doc:
                         # If the document already exists, use the one with attributes if possible
                         doc_id = doc["id"]
-                        if doc_id in docs_by_id:
-                            if "attributes" not in doc and "attributes" in docs_by_id[doc_id]:
-                                # Keep the existing document that has attributes
-                                continue
+                        if doc_id in docs_by_id and "attributes" not in doc and "attributes" in docs_by_id[doc_id]:
+                            # Keep the existing document that has attributes
+                            continue
 
                         # Initialize attributes if needed
                         if "attributes" not in doc:
@@ -429,7 +404,7 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                             doc["attributes"] = {}
                         merged_docs.append(doc)
             except Exception as e:
-                logger.error(f"Error processing document file {doc_path}: {e}")
+                logger.exception(f"Error processing document file {doc_path}: {e}")
                 continue
 
         logger.info(f"Loaded {len(docs_by_id)} unique documents with IDs")
@@ -491,10 +466,10 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                             logger.info(f"Matched attributes for {docs_matched_in_file} documents from {basename} in {subdir}")
 
                     except Exception as e:
-                        logger.error(f"Error processing attribute file {attr_path}: {e}")
+                        logger.exception(f"Error processing attribute file {attr_path}: {e}")
                         continue
             except Exception as e:
-                logger.error(f"Error processing attribute subdirectory {subdir}: {e}")
+                logger.exception(f"Error processing attribute subdirectory {subdir}: {e}")
                 continue
 
         # Convert the dictionary to a list for return
@@ -1040,7 +1015,7 @@ def parse_rule(rule_string):
             parser = Parser(tokens)
             return parser.parse()
         except Exception as e:
-            raise ValueError(f"Error parsing expression '{rule_string}': {e}")
+            raise ValueError(f"Error parsing expression '{rule_string}': {e}") from e
 
 
 def is_complex_expression(rule):
@@ -1389,7 +1364,7 @@ def generate_cdf_plot(values, attribute_name):
             min_val = np.min(values)
             max_val = np.max(values)
             stats_text = f"n={len(values)}\nmin={min_val:.2f}\nmax={max_val:.2f}\nmean={mean_val:.2f}\nmedian={median_val:.2f}"
-            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment="top", bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.8})
 
         # Make layout tight
         fig.tight_layout()
@@ -1403,7 +1378,7 @@ def generate_cdf_plot(values, attribute_name):
         return img_base64
 
     except Exception as e:
-        logger.error(f"Error generating CDF plot for {attribute_name}: {e}")
+        logger.exception(f"Error generating CDF plot for {attribute_name}: {e}")
         return None
 
 
@@ -2105,7 +2080,7 @@ IoU: {iou:.4f}
     logger.info("\n--- AVAILABLE ATTRIBUTES ---")
     all_attributes = set()
     for doc in all_docs:
-        if "attributes" in doc and doc["attributes"]:
+        if doc.get("attributes"):
             all_attributes.update(doc["attributes"].keys())
 
     if all_attributes:

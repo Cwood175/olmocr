@@ -21,6 +21,9 @@ def is_s3_path(path):
     return str(path).startswith("s3://")
 
 
+logger = logging.getLogger(__name__)
+
+
 def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
     """
     Process a single JSONL file: read, transform, and write to output.
@@ -41,7 +44,7 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
                 try:
                     obj = json.loads(line)
                 except json.JSONDecodeError as e:
-                    logging.error(f"JSON decode error in file {input_file} at line {line_number}: {e}")
+                    logger.error(f"JSON decode error in file {input_file} at line {line_number}: {e}")
                     error_count += 1
                     continue
 
@@ -74,10 +77,9 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool):
                 else:
                     error_count += 1
 
-        logging.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
-    except Exception as e:
-        logging.exception(e)
-        logging.error(f"Failed to process file {input_file}: {e}")
+        logger.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
+    except Exception:
+        logger.exception(f"Failed to process file {input_file}")
 
 
 def construct_output_file_path(input_file_path, input_dir, output_dir):
@@ -182,10 +184,10 @@ def main():
     input_files = list_input_files(input_dir)
 
     if not input_files:
-        logging.warning(f"No JSONL files found in '{input_dir}'. Exiting.")
+        logger.warning(f"No JSONL files found in '{input_dir}'. Exiting.")
         sys.exit(0)
 
-    logging.info(f"Found {len(input_files)} JSONL files to process.")
+    logger.info(f"Found {len(input_files)} JSONL files to process.")
 
     # Prepare tasks for parallel processing
     tasks = []
@@ -201,10 +203,10 @@ def main():
             input_file = future_to_file[future]
             try:
                 future.result()
-            except Exception as exc:
-                logging.error(f"File {input_file} generated an exception: {exc}")
+            except Exception:
+                logger.exception(f"File {input_file} generated an exception")
 
-    logging.info("All files have been processed.")
+    logger.info("All files have been processed.")
 
 
 if __name__ == "__main__":

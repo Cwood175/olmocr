@@ -886,7 +886,7 @@ class TestMineTests(unittest.TestCase):
         from ..synth.mine_html_templates import render_pdf_with_playwright
 
         # Create HTML with LaTeX expressions
-        html_content = """
+        html_content = r"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -900,7 +900,7 @@ class TestMineTests(unittest.TestCase):
             
             <p>Block math expression:</p>
             <p>\[
-            \\frac{d}{dx}(x^n) = nx^{n-1}
+            \frac{d}{dx}(x^n) = nx^{n-1}
             \]</p>
             
             <p>Another complex equation:</p>

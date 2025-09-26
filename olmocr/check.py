@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 def check_poppler_version():
     try:
-        result = subprocess.run(["pdftoppm", "-h"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(["pdftoppm", "-h"], capture_output=True, text=True, check=False)
         if result.returncode == 0 and result.stderr.startswith("pdftoppm"):
             logger.info("pdftoppm is installed and working.")
         else:

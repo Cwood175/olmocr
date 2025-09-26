@@ -3,10 +3,10 @@ import argparse
 import json
 import re
 import sqlite3
-from typing import Optional
+import sys
 
 
-def parse_pdf_hash(pretty_pdf_path: str) -> Optional[str]:
+def parse_pdf_hash(pretty_pdf_path: str) -> str | None:
     pattern = r"s3://ai2-s2-pdfs/([a-f0-9]{4})/([a-f0-9]+)\.pdf"
     match = re.match(pattern, pretty_pdf_path)
     if match:
@@ -14,7 +14,7 @@ def parse_pdf_hash(pretty_pdf_path: str) -> Optional[str]:
     return None
 
 
-def get_uri_from_db(db_path: str, pdf_hash: str) -> Optional[str]:
+def get_uri_from_db(db_path: str, pdf_hash: str) -> str | None:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("SELECT uri FROM pdf_mapping WHERE pdf_hash = ?", (pdf_hash,))
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     if not args.force:
         print("Now run with --force to write data")
-        quit()
+        sys.exit()
 
     with open(args.jsonl, "w") as inpf:
         for row in data:

@@ -1,11 +1,9 @@
-from typing import Type
-
 from sequence_align.pairwise import hirschberg, needleman_wunsch
 
 from .registry import BaseRegistry
 
 
-class AlignerRegistry(BaseRegistry[Type["BaseAligner"]]):
+class AlignerRegistry(BaseRegistry[type["BaseAligner"]]):
     """A registry for aligners."""
 
 

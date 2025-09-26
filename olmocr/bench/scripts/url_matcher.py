@@ -15,7 +15,7 @@ def extract_urls_from_jsonl(file_path):
         for line in f:
             try:
                 data = json.loads(line.strip())
-                if "url" in data and data["url"]:
+                if data.get("url"):
                     url = data["url"]
                     urls.add(url)
                     # Store minimal context for each URL
@@ -66,12 +66,12 @@ def main():
 
         for split in dataset_documents:
             for item in dataset_documents[split]:
-                if "url" in item and item["url"]:
+                if item.get("url"):
                     hf_urls.add(item["url"])
 
         for split in dataset_books:
             for item in dataset_books[split]:
-                if "url" in item and item["url"]:
+                if item.get("url"):
                     hf_urls.add(item["url"])
 
         print(f"Extracted {len(hf_urls)} unique URLs from Hugging Face dataset.")
@@ -115,7 +115,7 @@ def main():
 
         print(f"Results saved to {args.output}")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error loading or processing Hugging Face dataset: {e}")
 
 

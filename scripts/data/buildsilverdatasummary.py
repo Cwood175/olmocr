@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from tqdm import tqdm
 
 
-def parse_pdf_hash(pretty_pdf_path: str) -> Optional[str]:
+def parse_pdf_hash(pretty_pdf_path: str) -> str | None:
     pattern = r"s3://ai2-s2-pdfs/([a-f0-9]{4})/([a-f0-9]+)\.pdf-\d+"
     match = re.match(pattern, pretty_pdf_path)
     if match:
@@ -59,7 +59,7 @@ def cache_athena_csv_to_db(athena_csv_path: str) -> str:
     return db_path
 
 
-def get_uri_from_db(db_path: str, pdf_hash: str) -> Optional[str]:
+def get_uri_from_db(db_path: str, pdf_hash: str) -> str | None:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("SELECT uri FROM pdf_mapping WHERE pdf_hash = ?", (pdf_hash,))
@@ -143,7 +143,7 @@ def main():
             try:
                 results = future.result()
                 all_rows.extend(results)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - one bad file must not stop the batch
                 print(f"Error processing file: {future_to_file[future]}\n{e}")
 
     os.makedirs(args.output, exist_ok=True)

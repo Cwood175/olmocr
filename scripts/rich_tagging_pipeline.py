@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Tagging pipeline for Dolma JSONL datasets.
 
@@ -69,8 +68,8 @@ metrics = MetricsKeeper(window=60 * 5)
 class PIIClassification(BaseModel):
     primary_language: str = Field(..., description="Primary language as a two-letter code")
     document_type: str = Field(..., description="Basic summary of document type classification")
-    is_resume_cv: Optional[bool] = Field(None, description="True if the document is a page from a resume or cv")
-    contains_pii: Optional[bool] = Field(None, description="True if document contains PII")
+    is_resume_cv: bool | None = Field(None, description="True if the document is a page from a resume or cv")
+    contains_pii: bool | None = Field(None, description="True if document contains PII")
 
 
 class RichPIIClassification(BaseModel):
@@ -79,21 +78,21 @@ class RichPIIClassification(BaseModel):
 
     is_public_document: bool = Field(False, description="True if the document is meant for public dissemination")
 
-    contains_pii_government_id: Optional[bool] = Field(None)
-    contains_pii_financial_info: Optional[bool] = Field(None)
-    contains_pii_biometric_data: Optional[bool] = Field(None)
-    contains_pii_login_info: Optional[bool] = Field(None)
+    contains_pii_government_id: bool | None = Field(None)
+    contains_pii_financial_info: bool | None = Field(None)
+    contains_pii_biometric_data: bool | None = Field(None)
+    contains_pii_login_info: bool | None = Field(None)
 
-    contains_identifier_name: Optional[bool] = Field(None, description="True if the document contains a name")
-    contains_identifier_email: Optional[bool] = Field(None, description="True if the document contains an email address")
-    contains_identifier_phone_number: Optional[bool] = Field(None, description="True if the document contains phone numbers")
+    contains_identifier_name: bool | None = Field(None, description="True if the document contains a name")
+    contains_identifier_email: bool | None = Field(None, description="True if the document contains an email address")
+    contains_identifier_phone_number: bool | None = Field(None, description="True if the document contains phone numbers")
 
-    contains_identifier_with_address: Optional[bool] = Field(None)
-    contains_identifier_with_biographical_info: Optional[bool] = Field(None)
-    contains_identifier_with_location_info: Optional[bool] = Field(None)
-    contains_identifier_with_employment_info: Optional[bool] = Field(None)
-    contains_identifier_with_education_info: Optional[bool] = Field(None)
-    contains_identifier_with_medical_info: Optional[bool] = Field(None)
+    contains_identifier_with_address: bool | None = Field(None)
+    contains_identifier_with_biographical_info: bool | None = Field(None)
+    contains_identifier_with_location_info: bool | None = Field(None)
+    contains_identifier_with_employment_info: bool | None = Field(None)
+    contains_identifier_with_education_info: bool | None = Field(None)
+    contains_identifier_with_medical_info: bool | None = Field(None)
 
     def contains_any_pii(self) -> bool:
         if self.is_public_document:
@@ -177,7 +176,7 @@ Only consider actual occurrences of the PII within the document shown.
     # ---------- HTTP call ---------------------------------------------------
     try:
         status, body = await apost(url, json_data=query)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - any transport failure falls back to a default classification
         logger.warning(f"Server network error: {e!s}")
         metrics.add_metrics(server_errors=1)
         return RichPIIClassification(primary_language="en", document_type="unknown", is_public_document=False)
@@ -278,17 +277,14 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
     finally:
-        # But just make sure to close the socket on your way out
+        # Make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except Exception:  # noqa: BLE001 - errors while closing the socket are not actionable
+                logger.debug("Error while closing connection", exc_info=True)
 
 
 async def process_dolma_document(args, dolma_doc, sem):
@@ -387,12 +383,27 @@ async def process_dolma_document(args, dolma_doc, sem):
                 )
             else:
                 # For pages we don't process, set all attributes to None
-                for attr_key in result_attributes:
-                    result_attributes[attr_key].append([start_pos, end_pos, None])
+                for attr_values in result_attributes.values():
+                    attr_values.append([start_pos, end_pos, None])
 
         return result_attributes
     else:
         raise NotImplementedError("Missing code here, expecting this to be dolma docs made by olmocr....")
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _write_bytes(path: str, data: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def _write_text(path: str, text: str) -> None:
+    with open(path, "w") as f:
+        f.write(text)
 
 
 async def process_file(args, worker_id: int, file_uri: str):
@@ -403,13 +414,12 @@ async def process_file(args, worker_id: int, file_uri: str):
     if file_uri.startswith("s3://"):
         raw = await asyncio.to_thread(get_s3_bytes_with_backoff, dataset_s3, file_uri)
     else:
-        with open(file_uri, "rb") as f:
-            raw = f.read()
+        raw = await asyncio.to_thread(_read_bytes, file_uri)
 
     # Decompress if needed
     if file_uri.endswith(".gz"):
         file_bytes = gzip.decompress(raw)
-    elif file_uri.endswith(".ztd") or file_uri.endswith(".zst") or file_uri.endswith(".zstd"):
+    elif file_uri.endswith((".ztd", ".zst", ".zstd")):
         dctx = zstd.ZstdDecompressor()
         file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
     else:
@@ -491,8 +501,7 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             else:
                 out_path = os.path.join(args.dataset, out_rel)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with open(out_path, "wb") as fh:
-                    fh.write(payload)
+                await asyncio.to_thread(_write_bytes, out_path, payload)
 
             # 4. Mark queue item done
             await work_queue.mark_done(work_item)
@@ -506,10 +515,10 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             else:
                 sentinel_path = os.path.join(args.scratch, sentinel_rel)
                 os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
-                open(sentinel_path, "w").close()
+                await asyncio.to_thread(_write_bytes, sentinel_path, b"")
 
-        except Exception as exc:
-            logger.exception(f"Worker {worker_id} exception: {exc!s}")
+        except Exception:  # noqa: BLE001 - a failed work item must not stop the worker loop
+            logger.exception(f"Worker {worker_id} exception")
         finally:
             semaphore.release()
 
@@ -581,7 +590,7 @@ async def server_task(model_name_or_path, args, semaphore):
             try:
                 line = line.decode("utf-8").rstrip()
                 await process_line(line)
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001 - a bad log line must not stop log processing
                 logger.warning(f"Got {ex} when reading log line from inference server, skipping")
 
     async def timeout_task():
@@ -643,16 +652,16 @@ async def check_server_ready():
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
+        except httpx.HTTPError:
             logger.warning(f"Attempt {attempt}: Please wait for model server to become ready...")
 
         await asyncio.sleep(delay_sec)
 
-    raise Exception("model server did not become ready after waiting.")
+    raise RuntimeError("model server did not become ready after waiting.")
 
 
 async def download_model(model_name_or_path: str):
-    if model_name_or_path.startswith("s3://") or model_name_or_path.startswith("gs://") or model_name_or_path.startswith("weka://"):
+    if model_name_or_path.startswith(("s3://", "gs://", "weka://")):
         logger.info(f"Downloading model directory from '{model_name_or_path}'")
         model_cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "olmocr", "model")
         download_directory([model_name_or_path], model_cache_dir)
@@ -717,11 +726,9 @@ def submit_beaker_job(args):
 
         b.secret.write(f"{owner}-WEKA_ACCESS_KEY_ID", os.environ.get("WEKA_ACCESS_KEY_ID", ""), args.beaker_workspace)
         b.secret.write(f"{owner}-WEKA_SECRET_ACCESS_KEY", os.environ.get("WEKA_SECRET_ACCESS_KEY", ""), args.beaker_workspace)
-        b.secret.write(
-            f"{owner}-AWS_CREDENTIALS_FILE",
-            open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")).read(),
-            args.beaker_workspace,
-        )
+        with open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")) as f:
+            aws_credentials = f.read()
+        b.secret.write(f"{owner}-AWS_CREDENTIALS_FILE", aws_credentials, args.beaker_workspace)
 
     env_var_secrets = [
         EnvVar(name="WEKA_ACCESS_KEY_ID", secret=f"{owner}-WEKA_ACCESS_KEY_ID"),
@@ -815,13 +822,11 @@ async def main():
         if "AWS_CREDENTIALS_FILE" in os.environ:
             cred_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
             os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("AWS_CREDENTIALS_FILE"))
+            await asyncio.to_thread(_write_text, cred_path, os.environ.get("AWS_CREDENTIALS_FILE"))
         if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
             cred_path = os.path.join(os.path.expanduser("~"), ".gcs", "credentials")
             os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
+            await asyncio.to_thread(_write_text, cred_path, os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
         workspace_s3 = boto3.client("s3")
         dataset_s3 = boto3.client("s3")

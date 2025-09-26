@@ -6,7 +6,6 @@ import json
 import random
 import time
 from io import BytesIO
-from typing import List, Optional, Tuple
 
 import torch
 import uvloop
@@ -32,8 +31,8 @@ def sample_requests(
     dataset_path: str,
     num_requests: int,
     tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int],
-) -> List[Tuple[str, int, int]]:
+    fixed_output_len: int | None,
+) -> list[tuple[str, int, int]]:
     if fixed_output_len is not None and fixed_output_len < 4:
         raise ValueError("output_len too small")
 
@@ -49,7 +48,7 @@ def sample_requests(
     random.shuffle(dataset)
 
     # Filter out sequences that are too long or too short
-    filtered_dataset: List[Tuple[str, int, int]] = []
+    filtered_dataset: list[tuple[str, int, int]] = []
     for i in range(len(dataset)):
         if len(filtered_dataset) == num_requests:
             break
@@ -76,12 +75,12 @@ def sample_mm_requests_qwen2vl(
     dataset_path: str,
     num_requests: int,
     tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int],
+    fixed_output_len: int | None,
 ):
     processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
 
-    with open(dataset_path, "r") as f:
-        json_data = [json.loads(line) for line in f.readlines() if len(line.strip()) > 0]
+    with open(dataset_path) as f:
+        json_data = [json.loads(line) for line in f if len(line.strip()) > 0]
 
     result = []
 
@@ -107,11 +106,11 @@ def sample_mm_requests_qwen2vl(
         result.append(
             (
                 TokensPrompt(
-                    dict(
-                        prompt_token_ids=tokens,
-                        multi_modal_data=dict(image=dict(image_embeds=torch.randn(1036, 3584), image_grid_thw=torch.tensor([[1, 74, 56]]))),
+                    {
+                        "prompt_token_ids": tokens,
+                        "multi_modal_data": {"image": {"image_embeds": torch.randn(1036, 3584), "image_grid_thw": torch.tensor([[1, 74, 56]])}},
                         # multi_modal_data=dict(image=main_image)
-                    )
+                    }
                 ),
                 prompt_len,
                 fixed_output_len,
@@ -128,12 +127,12 @@ def sample_mm_requests_phi3(
     dataset_path: str,
     num_requests: int,
     tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int],
+    fixed_output_len: int | None,
 ):
     processor = AutoProcessor.from_pretrained("microsoft/Phi-3.5-vision-instruct", trust_remote_code=True)
 
-    with open(dataset_path, "r") as f:
-        json_data = [json.loads(line) for line in f.readlines() if len(line.strip()) > 0]
+    with open(dataset_path) as f:
+        json_data = [json.loads(line) for line in f if len(line.strip()) > 0]
 
     result = []
 
@@ -152,10 +151,10 @@ def sample_mm_requests_phi3(
         result.append(
             (
                 TokensPrompt(
-                    dict(
-                        prompt_token_ids=tokens,
-                        multi_modal_data=dict(image=main_image),
-                    )
+                    {
+                        "prompt_token_ids": tokens,
+                        "multi_modal_data": {"image": main_image},
+                    }
                 ),
                 prompt_len,
                 fixed_output_len,
@@ -172,12 +171,12 @@ def sample_mm_requests_molmo(
     dataset_path: str,
     num_requests: int,
     tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int],
+    fixed_output_len: int | None,
 ):
     processor = AutoProcessor.from_pretrained("allenai/Molmo-7B-D-0924", trust_remote_code=True, torch_dtype="auto", device_map="auto")
 
-    with open(dataset_path, "r") as f:
-        json_data = [json.loads(line) for line in f.readlines() if len(line.strip()) > 0]
+    with open(dataset_path) as f:
+        json_data = [json.loads(line) for line in f if len(line.strip()) > 0]
 
     result = []
 
@@ -185,7 +184,7 @@ def sample_mm_requests_molmo(
         raw_b64 = data["chat_messages"][0]["content"][1]["image_url"]["url"]
         main_image = Image.open(BytesIO(base64.b64decode(raw_b64[raw_b64.find(",") + 1 :])))
 
-        inputs = inputs = processor.process(images=[main_image], text=data["chat_messages"][0]["content"][0]["text"])
+        inputs = processor.process(images=[main_image], text=data["chat_messages"][0]["content"][0]["text"])
 
         # print(inputs)
 
@@ -197,10 +196,10 @@ def sample_mm_requests_molmo(
         result.append(
             (
                 TokensPrompt(
-                    dict(
-                        prompt_token_ids=tokens,
-                        multi_modal_data=dict(image=main_image),
-                    )
+                    {
+                        "prompt_token_ids": tokens,
+                        "multi_modal_data": {"image": main_image},
+                    }
                 ),
                 prompt_len,
                 fixed_output_len,
@@ -214,27 +213,27 @@ def sample_mm_requests_molmo(
 
 
 def run_vllm(
-    requests: List[Tuple[str, int, int]],
+    requests: list[tuple[str, int, int]],
     model: str,
     tokenizer: str,
-    quantization: Optional[str],
+    quantization: str | None,
     tensor_parallel_size: int,
     seed: int,
     n: int,
     trust_remote_code: bool,
     dtype: str,
-    max_model_len: Optional[int],
+    max_model_len: int | None,
     enforce_eager: bool,
     kv_cache_dtype: str,
-    quantization_param_path: Optional[str],
+    quantization_param_path: str | None,
     device: str,
     enable_prefix_caching: bool,
     enable_chunked_prefill: bool,
     max_num_batched_tokens: int,
-    distributed_executor_backend: Optional[str],
+    distributed_executor_backend: str | None,
     gpu_memory_utilization: float = 0.9,
     num_scheduler_steps: int = 1,
-    download_dir: Optional[str] = None,
+    download_dir: str | None = None,
     load_format: str = EngineArgs.load_format,
     disable_async_output_proc: bool = False,
 ) -> float:
@@ -268,8 +267,8 @@ def run_vllm(
     )
 
     # Add the requests to the engine.
-    prompts: List[str] = []
-    sampling_params: List[SamplingParams] = []
+    prompts: list[str] = []
+    sampling_params: list[SamplingParams] = []
     for prompt, _, output_len in requests:
         prompts.append(prompt)
         sampling_params.append(
@@ -308,27 +307,27 @@ def run_vllm(
 
 
 async def run_vllm_async(
-    requests: List[Tuple[str, int, int]],
+    requests: list[tuple[str, int, int]],
     model: str,
     tokenizer: str,
-    quantization: Optional[str],
+    quantization: str | None,
     tensor_parallel_size: int,
     seed: int,
     n: int,
     trust_remote_code: bool,
     dtype: str,
-    max_model_len: Optional[int],
+    max_model_len: int | None,
     enforce_eager: bool,
     kv_cache_dtype: str,
-    quantization_param_path: Optional[str],
+    quantization_param_path: str | None,
     device: str,
     enable_prefix_caching: bool,
     enable_chunked_prefill: bool,
     max_num_batched_tokens: int,
-    distributed_executor_backend: Optional[str],
+    distributed_executor_backend: str | None,
     gpu_memory_utilization: float = 0.9,
     num_scheduler_steps: int = 1,
-    download_dir: Optional[str] = None,
+    download_dir: str | None = None,
     load_format: str = EngineArgs.load_format,
     disable_async_output_proc: bool = False,
     disable_frontend_multiprocessing: bool = False,
@@ -363,8 +362,8 @@ async def run_vllm_async(
 
     async with build_async_engine_client_from_engine_args(engine_args, disable_frontend_multiprocessing) as llm:
         # Add the requests to the engine.
-        prompts: List[str] = []
-        sampling_params: List[SamplingParams] = []
+        prompts: list[str] = []
+        sampling_params: list[SamplingParams] = []
         for prompt, _, output_len in requests:
             prompts.append(prompt)
             sampling_params.append(
@@ -390,7 +389,7 @@ async def run_vllm_async(
 
 
 def run_hf(
-    requests: List[Tuple[str, int, int]],
+    requests: list[tuple[str, int, int]],
     model: str,
     tokenizer: PreTrainedTokenizerBase,
     n: int,
@@ -405,7 +404,7 @@ def run_hf(
 
     pbar = tqdm(total=len(requests))
     start = time.perf_counter()
-    batch: List[str] = []
+    batch: list[str] = []
     max_prompt_len = 0
     max_output_len = 0
     for i in range(len(requests)):
@@ -445,7 +444,7 @@ def run_hf(
 
 
 def run_mii(
-    requests: List[Tuple[str, int, int]],
+    requests: list[tuple[str, int, int]],
     model: str,
     tensor_parallel_size: int,
     output_len: int,

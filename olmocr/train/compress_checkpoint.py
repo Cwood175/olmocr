@@ -23,10 +23,10 @@ import json
 import os
 import random
 import shutil
+import sys
 import tempfile
 from io import BytesIO
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
 
 import boto3
 import torch
@@ -46,7 +46,7 @@ from olmocr.s3_utils import parse_s3_path
 s3_client = boto3.client("s3")
 
 
-def get_calibration_pdfs(num_samples: int, pdf_paths: List[str]) -> List[str]:
+def get_calibration_pdfs(num_samples: int, pdf_paths: list[str]) -> list[str]:
     """Get calibration PDFs from provided paths.
 
     Args:
@@ -78,7 +78,7 @@ def get_calibration_pdfs(num_samples: int, pdf_paths: List[str]) -> List[str]:
     return valid_paths
 
 
-async def prepare_calibration_dataset(pdf_paths: List[str], processor) -> Dataset:
+async def prepare_calibration_dataset(pdf_paths: list[str], processor) -> Dataset:
     """Prepare calibration dataset from PDFs using build_page_query."""
     dataset_items = []
 
@@ -128,7 +128,7 @@ async def prepare_calibration_dataset(pdf_paths: List[str], processor) -> Datase
             batch = dataset_items[i : i + batch_size]
             # Flatten the batch into a dict of lists
             batch_dict = {}
-            for key in batch[0].keys():
+            for key in batch[0]:
                 batch_dict[key] = [item[key] for item in batch]
 
             # Create dataset for this batch
@@ -190,7 +190,7 @@ def upload_local_to_s3(local_dir: str, bucket: str, prefix: str) -> None:
 
 def load_model_and_tokenizer(
     source_path: str,
-) -> Tuple[Union[Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration], AutoTokenizer, Optional[str]]:
+) -> tuple[Qwen2VLForConditionalGeneration | Qwen2_5_VLForConditionalGeneration, AutoTokenizer, str | None]:
     """Load model and tokenizer from source path (local or S3)."""
     if is_s3_path(source_path):
         # Download from S3 to temporary directory
@@ -235,7 +235,7 @@ def load_model_and_tokenizer(
     return model, tokenizer, temp_dir
 
 
-def copy_additional_files(source_path: str, dest_path: str, temp_source_dir: Optional[str] = None) -> None:
+def copy_additional_files(source_path: str, dest_path: str, temp_source_dir: str | None = None) -> None:
     """Copy additional config files that are needed but not saved by save_pretrained."""
     # List of additional files to copy if they exist
     additional_files = ["preprocessor_config.json", "chat_template.json"]
@@ -258,7 +258,7 @@ def data_collator(batch):
 
 
 def compress_checkpoint(
-    source_path: str, dest_path: str, recipe_path: str, num_calibration_samples: int = 512, calibration_pdfs: Optional[List[str]] = None
+    source_path: str, dest_path: str, recipe_path: str, num_calibration_samples: int = 512, calibration_pdfs: list[str] | None = None
 ) -> None:
     """Compress OlmOCR checkpoint using FP8 quantization."""
     # Load model and tokenizer
@@ -406,4 +406,4 @@ Examples:
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

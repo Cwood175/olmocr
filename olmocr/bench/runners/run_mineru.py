@@ -28,12 +28,9 @@ def run_mineru(pdf_path: str, page_num: int = 1) -> str:
         # pypdf uses 0-based indexing, so subtract 1 from page_num
         writer.add_page(reader.pages[page_num - 1])
 
-        # Save the extracted page to a temporary file
-        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        temp_file.close()  # Close the file but keep the name
-
-        with open(temp_file.name, "wb") as output_pdf:
-            writer.write(output_pdf)
+        # Save the extracted page to a temporary file (closed on exit, kept on disk)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+            writer.write(temp_file)
 
         pdf_to_process = temp_file.name
     else:

@@ -27,7 +27,7 @@ def read_jsonl(paths):
             with smart_open.smart_open(path, "r", encoding="utf-8") as f:
                 for line in f:
                     yield line.strip()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error reading {path}: {e}")
 
 
@@ -51,7 +51,7 @@ def process_document(data, s3_client, template, output_dir):
     source_file = metadata.get("Source-File")
 
     # Generate base64 image of the corresponding PDF page
-    local_pdf = tempfile.NamedTemporaryFile("wb+", suffix=".pdf", delete=False)
+    local_pdf = tempfile.NamedTemporaryFile("wb+", suffix=".pdf", delete=False)  # noqa: SIM115
     try:
         pdf_bytes = get_s3_bytes(s3_client, source_file)
         if pdf_bytes is None:
@@ -73,7 +73,7 @@ def process_document(data, s3_client, template, output_dir):
 
             pages.append({"page_num": page_num, "text": page_text, "image": base64_image})
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error processing document ID {id_}: {e}")
         return
     finally:
@@ -89,7 +89,7 @@ def process_document(data, s3_client, template, output_dir):
     # Render the HTML using the Jinja template
     try:
         html_content = template.render(id=id_, pages=pages, s3_link=s3_link)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error rendering HTML for document ID {id_}: {e}")
         return
 
@@ -100,7 +100,7 @@ def process_document(data, s3_client, template, output_dir):
         filepath = os.path.join(output_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(html_content)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error writing HTML file for document ID {id_}: {e}")
 
 
@@ -128,7 +128,7 @@ def main(jsonl_paths, output_dir, template_path, s3_profile_name):
         with open(os.path.join(os.path.dirname(__file__), template_path), "r", encoding="utf-8") as template_file:
             template_content = template_file.read()
             template = Template(template_content)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error loading template: {e}")
         return
 
@@ -136,7 +136,7 @@ def main(jsonl_paths, output_dir, template_path, s3_profile_name):
     try:
         workspace_session = boto3.Session(profile_name=s3_profile_name)
         s3_client = workspace_session.client("s3")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error initializing S3 client: {e}")
         return
 

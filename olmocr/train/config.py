@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 from omegaconf import OmegaConf
@@ -137,18 +137,18 @@ class DatasetItemConfig:
     """Configuration for a single dataset item."""
 
     root_dir: str
-    pipeline: List[Dict[str, Any]] = field(default_factory=list)
+    pipeline: list[dict[str, Any]] = field(default_factory=list)
 
     # Optional sampling
-    max_samples: Optional[int] = None
+    max_samples: int | None = None
 
 
 @dataclass
 class DatasetConfig:
     """Configuration for dataset and data loading."""
 
-    train: List[Dict[str, Any]] = field(default_factory=list)
-    eval: List[Dict[str, Any]] = field(default_factory=list)
+    train: list[dict[str, Any]] = field(default_factory=list)
+    eval: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -166,7 +166,7 @@ class ModelConfig:
 
     # Flash attention
     use_flash_attention: bool = True
-    attn_implementation: Optional[str] = None  # "flash_attention_2", "sdpa", "eager"
+    attn_implementation: str | None = None  # "flash_attention_2", "sdpa", "eager"
 
     # Model modifications
     freeze_vision_tower: bool = False
@@ -177,8 +177,8 @@ class ModelConfig:
     lora_rank: int = 8
     lora_alpha: int = 32
     lora_dropout: float = 0.1
-    lora_target_modules: List[str] = field(default_factory=lambda: ["q_proj", "v_proj", "k_proj", "o_proj"])
-    lora_modules_to_save: Optional[List[str]] = None
+    lora_target_modules: list[str] = field(default_factory=lambda: ["q_proj", "v_proj", "k_proj", "o_proj"])
+    lora_modules_to_save: list[str] | None = None
 
 
 @dataclass
@@ -195,7 +195,7 @@ class TrainingConfig:
     learning_rate: float = 2e-5
     lr_scheduler_type: str = "cosine"
     warmup_ratio: float = 0.1
-    lr_scheduler_kwargs: Dict[str, Any] = field(default_factory=dict)
+    lr_scheduler_kwargs: dict[str, Any] = field(default_factory=dict)
 
     # Optimization
     optim: str = "adamw_torch"  # "adamw_torch", "muon"
@@ -213,7 +213,7 @@ class TrainingConfig:
 
     # Gradient checkpointing
     gradient_checkpointing: bool = False
-    gradient_checkpointing_kwargs: Dict[str, Any] = field(default_factory=lambda: {"use_reentrant": False})
+    gradient_checkpointing_kwargs: dict[str, Any] = field(default_factory=lambda: {"use_reentrant": False})
 
     # Evaluation and checkpointing
     evaluation_strategy: str = "steps"
@@ -226,22 +226,22 @@ class TrainingConfig:
     greater_is_better: bool = False
 
     # Logging
-    logging_dir: Optional[str] = None
+    logging_dir: str | None = None
     logging_strategy: str = "steps"
     logging_steps: int = 10
     logging_first_step: bool = True
-    report_to: List[str] = field(default_factory=lambda: ["wandb"])
+    report_to: list[str] = field(default_factory=lambda: ["wandb"])
 
     # Force seeds to a consistent value for reproducibility
     seed: int = 42
-    data_seed: Optional[int] = 42
+    data_seed: int | None = 42
 
     # Performance
     dataloader_drop_last: bool = True
     dataloader_num_workers: int = 16
 
     # Data collator settings
-    collator_max_token_len: Optional[int] = None
+    collator_max_token_len: int | None = None
     remove_unused_columns: bool = False  # Important for custom datasets
 
     # Torch compile settings
@@ -267,14 +267,14 @@ class Config:
 
     # Environment
     project_name: str = "olmocr-training"
-    run_name: Optional[str] = None
-    tags: List[str] = field(default_factory=list)
-    notes: Optional[str] = None
+    run_name: str | None = None
+    tags: list[str] = field(default_factory=list)
+    notes: str | None = None
 
     # Experiment tracking
     experiment_tracker: str = "tensorboard"  # "tensorboard", "wandb", "mlflow"
-    wandb_project: Optional[str] = None
-    wandb_entity: Optional[str] = None
+    wandb_project: str | None = None
+    wandb_entity: str | None = None
 
     # Distributed training
     distributed: bool = False
@@ -344,12 +344,12 @@ class Config:
             self.training.logging_dir = os.path.join(self.training.output_dir, "logs")
         Path(self.training.logging_dir).mkdir(parents=True, exist_ok=True)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
         cfg = OmegaConf.structured(self)
         return OmegaConf.to_container(cfg, resolve=True)
 
-    def get_pipeline_steps(self, pipeline_config: List[Dict[str, Any]], processor=None):
+    def get_pipeline_steps(self, pipeline_config: list[dict[str, Any]], processor=None):
         """Create actual pipeline step instances from pipeline configuration.
 
         Args:
