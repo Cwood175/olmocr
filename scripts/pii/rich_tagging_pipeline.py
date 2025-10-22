@@ -278,16 +278,15 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
+    except Exception:
+        raise
     finally:
         # But just make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except Exception:
                 pass
 
 
@@ -423,7 +422,7 @@ async def process_file(args, worker_id: int, file_uri: str):
 
     async with asyncio.TaskGroup() as tg:
         for line in lines:
-            dolma_doc = json.loads(line)
+            dolma_doc = await asyncio.to_thread(json.loads, line)
             task = tg.create_task(process_dolma_document(args, dolma_doc, sem))
             page_tasks[dolma_doc["id"]] = (task, dolma_doc)
 
@@ -508,8 +507,8 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
                 os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
                 open(sentinel_path, "w").close()
 
-        except Exception as exc:
-            logger.exception(f"Worker {worker_id} exception: {exc!s}")
+        except Exception:
+            logger.exception(f"Worker {worker_id} exception")
         finally:
             semaphore.release()
 
@@ -581,8 +580,8 @@ async def server_task(model_name_or_path, args, semaphore):
             try:
                 line = line.decode("utf-8").rstrip()
                 await process_line(line)
-            except Exception as ex:
-                logger.warning(f"Got {ex} when reading log line from inference server, skipping")
+            except Exception:
+                logger.warning("Got error when reading log line from inference server, skipping")
 
     async def timeout_task():
         nonlocal last_running_req, last_queue_req, last_semaphore_release
@@ -594,7 +593,7 @@ async def server_task(model_name_or_path, args, semaphore):
                     last_semaphore_release = time.time()
                     logger.info("Semaphore released, allowing a worker to proceed.")
         except asyncio.CancelledError:
-            pass  # Clean up if the task is cancelled
+            raise
 
     # Start tasks to read stdout, stderr, and handle timeout logic
     stdout_task = asyncio.create_task(read_stream(proc.stdout))
