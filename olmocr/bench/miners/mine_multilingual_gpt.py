@@ -103,7 +103,7 @@ def check_for_table(pdf_path: str, page_num: int, api_key: str) -> Optional[bool
             response_format=LanguageDetectionResponse,
         )
 
-        if not response.choices or len(response.choices) == 0:
+        if not response.choices:
             print(f"No response generated for {pdf_path} page {page_num}")
             return None
 
@@ -114,7 +114,7 @@ def check_for_table(pdf_path: str, page_num: int, api_key: str) -> Optional[bool
             print(f"Failed to parse response for {pdf_path} page {page_num}")
             return None
 
-        is_non_english = parsed_response.two_letter_language_code.lower() != "en"
+        is_non_english = parsed_response.two_letter_language_code.lower() == "en"
 
         if is_non_english:
             print(f"Found {parsed_response.two_letter_language_code} language in {pdf_path} page {page_num + 1}")
@@ -122,7 +122,7 @@ def check_for_table(pdf_path: str, page_num: int, api_key: str) -> Optional[bool
         return is_non_english
 
     except Exception as e:
-        print(f"Error checking {pdf_path} page {page_num}: {str(e)}")
+        print(f"Error checking {pdf_path} page {page_num}: {e}")
         return None
 
 
@@ -191,7 +191,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> b
         return False
 
     except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
+        print(f"Error processing {pdf_filename}: {e}")
         return False
     finally:
         if os.path.exists(local_pdf_path):

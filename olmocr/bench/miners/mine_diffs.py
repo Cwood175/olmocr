@@ -9,7 +9,6 @@ from difflib import SequenceMatcher
 import syntok.segmenter as segmenter
 from google import genai
 from google.genai import types
-
 from olmocr.bench.tests import TextPresenceTest, save_tests
 from olmocr.data.renderpdf import render_pdf_to_base64png
 

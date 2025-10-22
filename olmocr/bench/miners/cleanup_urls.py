@@ -3,13 +3,14 @@ import argparse
 import json
 import re
 import sqlite3
+
 from typing import Optional
 
 
 def parse_pdf_hash(pretty_pdf_path: str) -> Optional[str]:
     pattern = r"s3://ai2-s2-pdfs/([a-f0-9]{4})/([a-f0-9]+)\.pdf"
     match = re.match(pattern, pretty_pdf_path)
-    if match:
+    if match is not None:
         return match.group(1) + match.group(2)
     return None
 
@@ -20,7 +21,9 @@ def get_uri_from_db(db_path: str, pdf_hash: str) -> Optional[str]:
     cursor.execute("SELECT uri FROM pdf_mapping WHERE pdf_hash = ?", (pdf_hash,))
     result = cursor.fetchone()
     conn.close()
-    return result[0] if result else None
+    if result is not None:
+        return result[0]
+    return None
 
 
 if __name__ == "__main__":

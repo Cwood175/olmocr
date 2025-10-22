@@ -774,7 +774,7 @@ class DatasetTextRuleFilter(PipelineStep):
             return True
         except Exception as e:
             # If any unexpected error occurs during validation, be conservative and filter out
-            print(f"Error validating math equations: {e}")
+            logger.warning(f"Error validating math equations: {e}")
             return False
 
     def _contains_br_in_table_cells(self, text: str) -> bool:
@@ -884,8 +884,9 @@ class DatasetTextRuleFilter(PipelineStep):
                     return False  # Unclosed tags
                 if not parser.is_valid:
                     return False  # Parser found an error
-            except Exception:
+            except Exception as e:
                 # Any parsing exception means the table is malformed
+                logger.warning(f"Error parsing HTML table: {e}")
                 return False
 
         return True

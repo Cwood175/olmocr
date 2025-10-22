@@ -17,7 +17,6 @@ import os
 import re
 import sys
 import time
-from typing import Optional
 from urllib.parse import urlparse
 
 import boto3
@@ -69,23 +68,23 @@ metrics = MetricsKeeper(window=60 * 5)
 class PIIClassification(BaseModel):
     primary_language: str = Field(..., description="Primary language as a two-letter code")
     document_type: str = Field(..., description="Basic summary of document type classification")
-    is_resume_cv: Optional[bool] = Field(None, description="True if the document is a page from a resume or cv")
+    is_resume_cv: bool | None = Field(None, description="True if the document is a page from a resume or cv")
 
-    is_academic_paper: Optional[bool] = None
-    is_textbook: Optional[bool] = None
-    is_news_article: Optional[bool] = None
-    is_test_or_quiz: Optional[bool] = None
-    is_homework_assignment: Optional[bool] = None
-    is_class_syllabus: Optional[bool] = None
-    is_meeting_minutes: Optional[bool] = None
-    is_legal_contract: Optional[bool] = None
-    is_form: Optional[bool] = None
-    is_correspondence_or_letter: Optional[bool] = None
-    is_public_order: Optional[bool] = None
-    is_court_notice: Optional[bool] = None
-    is_completion_certificate: Optional[bool] = None
+    is_academic_paper: bool | None = None
+    is_textbook: bool | None = None
+    is_news_article: bool | None = None
+    is_test_or_quiz: bool | None = None
+    is_homework_assignment: bool | None = None
+    is_class_syllabus: bool | None = None
+    is_meeting_minutes: bool | None = None
+    is_legal_contract: bool | None = None
+    is_form: bool | None = None
+    is_correspondence_or_letter: bool | None = None
+    is_public_order: bool | None = None
+    is_court_notice: bool | None = None
+    is_completion_certificate: bool | None = None
 
-    contains_pii: Optional[bool] = Field(None, description="True if document contains PII")
+    contains_pii: bool | None = Field(None, description="True if document contains PII")
 
 
 async def _process_single_page(page_text: str) -> PIIClassification:
@@ -228,7 +227,7 @@ async def apost(url, json_data):
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except Exception:
                 pass
 
 

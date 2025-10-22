@@ -13,7 +13,7 @@ import random
 import shutil
 import tempfile
 from io import BytesIO
-from typing import Dict, List
+from typing import Any
 
 import numpy as np
 import PIL.Image
@@ -46,10 +46,10 @@ async def download_model(model_name_or_path: str, max_retries: int = 5):
                 logger.info(f"Downloading model with hugging face '{model_name_or_path}'")
                 snapshot_download(repo_id=model_name_or_path)
                 return model_name_or_path
-        except Exception:
+        except Exception as exc:
             if retry == max_retries - 1:
                 raise  # Raise on final attempt and fail the job
-            logger.warning(f"Model download failed (attempt {retry + 1}/{max_retries}), retrying...")
+            logger.warning(f"Model download failed (attempt {retry + 1}/{max_retries}), retrying... {exc}")
             await asyncio.sleep(2**retry)  # Exponential backoff
 
 
@@ -105,15 +105,15 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
                 # Build page query for page 1 of each PDF
                 query = await build_page_query(local_pdf_path=local_pdf_path, page=1, target_longest_image_dim=1280, image_rotation=0)
                 queries.append(query)
-            except Exception as e:
-                print(f"Error processing {os.path.basename(pdf_file)}: {e}")
+            except Exception as exc:
+                print(f"Error processing {os.path.basename(pdf_file)}: {exc}")
                 continue
 
         print(f"Successfully processed {len(queries)} PDFs")
         return queries
 
 
-def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, sampling_params, device, args):
+def process_single_prompt(sample: dict[str, Any], llm, hf_model, processor, sampling_params, device, args):
     """Process a single prompt with image and return comparison results."""
     # Track if we found the first mismatch for max_prob_first_diff
     found_first_mismatch = False

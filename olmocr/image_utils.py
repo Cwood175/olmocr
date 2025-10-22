@@ -1,6 +1,6 @@
 import os
 import subprocess
-from typing import List, Union
+from typing import List, Optional, Union
 
 
 def convert_image_to_pdf_bytes(image_files: Union[str, List[str]]) -> bytes:
@@ -41,21 +41,19 @@ def convert_image_to_pdf_bytes(image_files: Union[str, List[str]]) -> bytes:
         raise RuntimeError(f"Error converting image(s) to PDF: {e.stderr.decode('utf-8')}")
 
 
-def is_png(file_path):
+def is_png(file_path: str) -> bool:
     try:
         with open(file_path, "rb") as f:
             header = f.read(8)
             return header == b"\x89PNG\r\n\x1a\n"
-    except Exception as e:
-        print(f"Error: {e}")
+    except (OSError, ValueError):
         return False
 
 
-def is_jpeg(file_path):
+def is_jpeg(file_path: str) -> bool:
     try:
         with open(file_path, "rb") as f:
             header = f.read(2)
             return header == b"\xff\xd8"
-    except Exception as e:
-        print(f"Error: {e}")
+    except (OSError, ValueError):
         return False

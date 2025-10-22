@@ -278,16 +278,15 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
+    except Exception:
+        raise
     finally:
         # But just make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
+            except Exception:
                 pass
 
 
@@ -387,8 +386,8 @@ async def process_dolma_document(args, dolma_doc, sem):
                 )
             else:
                 # For pages we don't process, set all attributes to None
-                for attr_key in result_attributes:
-                    result_attributes[attr_key].append([start_pos, end_pos, None])
+                for attr_key, attr_value in result_attributes.items():
+                    attr_value.append([start_pos, end_pos, None])
 
         return result_attributes
     else:
@@ -432,7 +431,7 @@ async def process_file(args, worker_id: int, file_uri: str):
     # Collect results and build attributes
     attributes = []
     for doc_id, (task, dolma_doc) in page_tasks.items():
-        doc_attributes = task.result()
+        doc_attributes = await task
 
         attributes.append({"id": doc_id, "attributes": doc_attributes})
 
@@ -446,12 +445,10 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
     and drop an empty sentinel file in <workspace>/results/.
     """
     while True:
-        await semaphore.acquire()
         work_item = await work_queue.get_work()
 
         if work_item is None:
             logger.info(f"Worker {worker_id} exiting – queue empty")
-            semaphore.release()
             break
 
         file_uri = work_item.work_paths[0]
@@ -461,7 +458,8 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
             # ------------------------------------------------------------------
             # Run the per-file pipeline
             # ------------------------------------------------------------------
-            attributes = await process_file(args, worker_id, file_uri)
+            async with semaphore:
+                attributes = await process_file(args, worker_id, file_uri)
 
             # 1. Build the relative path that mirrors documents/…
             if file_uri.startswith("s3://"):
@@ -510,8 +508,6 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
 
         except Exception as exc:
             logger.exception(f"Worker {worker_id} exception: {exc!s}")
-        finally:
-            semaphore.release()
 
 
 async def server_task(model_name_or_path, args, semaphore):

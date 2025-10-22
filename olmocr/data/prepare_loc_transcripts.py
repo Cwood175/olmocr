@@ -8,6 +8,7 @@
 import argparse
 import csv
 import hashlib
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,8 +23,6 @@ from olmocr.image_utils import convert_image_to_pdf_bytes
 
 def fix_image_url(url: str) -> str:
     """Fix image URL to use full resolution instead of percentage-based sizing."""
-    import re
-
     # Replace any pct:XX pattern with just "full"
     pattern = r"full/pct:\d+/0/default\.jpg"
     if re.search(pattern, url):
@@ -279,7 +278,7 @@ def process_csv_file(csv_path: Path, output_dir: Path, processed_assets: Set[str
             temp_file.unlink(missing_ok=True)
         try:
             temp_dir.rmdir()
-        except:
+        except OSError:
             pass
 
     print(f"Completed {csv_name}: {processed} total processed ({newly_processed} new), {skipped} skipped")
@@ -289,7 +288,7 @@ def main():
     parser = argparse.ArgumentParser(description="Prepare LOC transcriptions for olmOCR training")
     parser.add_argument("--input-dir", type=str, required=True, help="Directory containing CSV files from LOC transcription datasets")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory for processed files")
-    parser.add_argument("--skip-cleanup", action="store_true", default=True, help="Skip transcription cleanup with GPT-4o (default: True)")
+    parser.add_argument("--skip-cleanup", action="store_true", default=False, help="Skip transcription cleanup with GPT-4o (default: False)")
     parser.add_argument("--csv-pattern", type=str, default="*.csv", help="Pattern to match CSV files (default: *.csv)")
     parser.add_argument("--parallel", type=int, default=1, help="Number of parallel download/processing threads (default: 1)")
 

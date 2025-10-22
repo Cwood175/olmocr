@@ -63,7 +63,7 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except (pypdf.PdfReadError, OSError) as e:
         print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
         raise
 
@@ -88,7 +88,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
     # Render the PDF page as an image
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)  # render_pdf_to_base64png is 1-indexed
-    except Exception as e:
+    except (ValueError, RuntimeError) as e:
         print(f"Error rendering PDF page: {str(e)}")
         return None
 
@@ -208,7 +208,7 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
 
         print(f"Completed processing {processed_pages} pages from {pdf_filename}")
 
-    except Exception as e:
+    except (pypdf.PdfReadError, OSError) as e:
         print(f"Error processing {pdf_filename}: {str(e)}")
 
 

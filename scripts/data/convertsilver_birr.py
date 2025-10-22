@@ -9,8 +9,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import boto3
-
-# Import Plotly for plotting
 import plotly.express as px
 import smart_open
 
@@ -169,7 +167,7 @@ def process_file(input_file: str, output_file: str, rewrite_prompt_str: bool, pd
 
         logging.info(f"Processed '{input_file}': {processed_count} records transformed, {error_count} errors.")
         return prompt_lengths
-    except Exception as e:
+    except (OSError, ValueError, IndexError) as e:
         logging.exception(e)
         logging.error(f"Failed to process file {input_file}: {e}")
         return []

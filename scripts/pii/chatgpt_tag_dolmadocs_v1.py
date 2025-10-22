@@ -7,6 +7,7 @@ This script combines the functionality of autoscan_dolmadocs.py and rich_tagging
 2. Creates attribute folders mirroring the document structure
 3. Simplifies with direct ThreadPoolExecutor usage instead of work queue system
 """
+#!/usr/bin/env python3
 import argparse
 import gzip
 import json
@@ -159,7 +160,7 @@ class PIIAnnotation(pydantic.BaseModel):
         return pii_types
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Rich Autoscan for OLMO OCR workspace using ChatGPT Vision")
     parser.add_argument("workspace", help="OLMO OCR workspace path (s3://bucket/workspace)")
     parser.add_argument("--workspace_profile", help="AWS profile for accessing workspace (documents and attributes)")
@@ -173,12 +174,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def list_result_files(s3_client, workspace_path):
+def list_result_files(s3_client, workspace_path) -> List[str]:
     """List all JSONL files in the workspace documents directory."""
     bucket, prefix = parse_s3_path(workspace_path)
     documents_prefix = os.path.join(prefix, "documents").rstrip("/") + "/"
 
-    all_files = []
+    all_files: List[str] = []
     paginator = s3_client.get_paginator("list_objects_v2")
 
     logger.info(f"Listing files from s3://{bucket}/{documents_prefix}")
@@ -206,7 +207,7 @@ def list_result_files(s3_client, workspace_path):
     return all_files
 
 
-def load_document_file(s3_client, file_path):
+def load_document_file(s3_client, file_path) -> List[str]:
     """Load a single document file and return its contents."""
     try:
         # Fetch raw bytes (S3 or local)
@@ -253,27 +254,26 @@ def get_document_info_from_line(line, file_path, line_index):
             return None
 
         # Just use the first page for each document
-        if page_spans:
-            page_span = page_spans[0]  # Just get the first page
-            if len(page_span) >= 3:
-                # Page spans are [start_pos, end_pos, page_num]
-                page_num = page_span[2]
+        page_span = page_spans[0]  # Just get the first page
+        if len(page_span) >= 3:
+            # Page spans are [start_pos, end_pos, page_num]
+            page_num = page_span[2]
 
-                # Extract text for this page
-                start_pos, end_pos = page_span[0], page_span[1]
-                page_text = doc["text"][start_pos:end_pos].strip()
+            # Extract text for this page
+            start_pos, end_pos = page_span[0], page_span[1]
+            page_text = doc["text"][start_pos:end_pos].strip()
 
-                # Return the information
-                return {
-                    "pdf_path": pdf_path,
-                    "page_num": page_num,
-                    "page_text": page_text,
-                    "start_pos": start_pos,
-                    "end_pos": end_pos,
-                    "doc_id": doc["id"],
-                    "source_file": file_path,
-                    "line_index": line_index,
-                }
+            # Return the information
+            return {
+                "pdf_path": pdf_path,
+                "page_num": page_num,
+                "page_text": page_text,
+                "start_pos": start_pos,
+                "end_pos": end_pos,
+                "doc_id": doc["id"],
+                "source_file": file_path,
+                "line_index": line_index,
+            }
 
         return None
     except json.JSONDecodeError:
@@ -284,13 +284,13 @@ def get_document_info_from_line(line, file_path, line_index):
         return None
 
 
-def get_all_pages(s3_client, document_files):
+def get_all_pages(document_files):
     """Get all pages from the document files for processing, preserving file and line order."""
     file_contents = {}
 
     # First, collect all file paths and their document info
     for file_path in tqdm(document_files, desc="Loading document files"):
-        lines = load_document_file(s3_client, file_path)
+        lines = load_document_file(None, file_path)
         if not lines:
             logger.warning(f"Empty or invalid file: {file_path}")
             continue

@@ -1509,7 +1509,7 @@ def generate_html_report(docs, title, summary, output_path):
         
         .title {{
             font-size: 1.2em;
-            font-weight: bold;s
+            font-weight: bold;
             color: #333;
             white-space: nowrap;
             overflow: hidden;

@@ -256,6 +256,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                                 pbar.set_postfix({"files": total_files_extracted})
                             except Exception as e:
                                 print(f"\nError with {tarball.name}: {e}")
+                                raise
                             pbar.update(1)
 
                 print(f"Extracted {total_files_extracted} files from tarballs to {extracted_dir}")
@@ -364,6 +365,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
             except Exception as ex:
                 print(f"Error processing line: {ex}")
                 total_errors += 1
+                raise
 
         if max_examples and total_processed >= max_examples:
             break

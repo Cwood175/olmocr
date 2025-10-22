@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import json
 import os
@@ -43,7 +43,7 @@ def extract_single_page_pdfs(source_pdf_dir, target_pdf_dir, pdf_page_tests):
     # Track all PDFs we need to process
     processed_pairs = set()
 
-    for pdf_name, page_num in pdf_page_tests.keys():
+    for pdf_name, page_num in pdf_page_tests.items():
         if (pdf_name, page_num) in processed_pairs:
             continue
 
@@ -80,7 +80,7 @@ def extract_single_page_pdfs(source_pdf_dir, target_pdf_dir, pdf_page_tests):
             processed_pairs.add((pdf_name, page_num))
             print(f"Created single-page PDF: {output_path}")
 
-        except Exception as e:
+        except (FileNotFoundError, ValueError) as e:
             print(f"Error processing {pdf_name} page {page_num}: {str(e)}")
 
     return processed_pairs

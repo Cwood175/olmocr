@@ -18,12 +18,12 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.abspath("../../"))
 
-from olmocr import VERSION, VERSION_SHORT  # noqa: E402
+from olmocr import VERSION, VERSION_SHORT
 
 # -- Project information -----------------------------------------------------
 
 project = "olmocr"
-copyright = f"{datetime.today().year}, Allen Institute for Artificial Intelligence"
+copyright = f"{datetime.now(tz=timezone.utc).year}, Allen Institute for Artificial Intelligence"
 author = "Allen Institute for Artificial Intelligence"
 version = VERSION_SHORT
 release = VERSION
@@ -116,6 +116,9 @@ class ShutupSphinxAutodocTypehintsFilter(logging.Filter):
         if "Cannot resolve forward reference" in record.msg:
             return False
         return True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 logging.getLogger("sphinx.sphinx_autodoc_typehints").addFilter(ShutupSphinxAutodocTypehintsFilter())

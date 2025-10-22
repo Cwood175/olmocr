@@ -14,11 +14,11 @@ logging.basicConfig(level=logging.INFO)
 class PdfFilter:
     def __init__(
         self,
-        languages_to_keep=None,
-        apply_form_check=True,
-        apply_download_spam_check=True,
-        download_spam_threshold=0.004,
-    ):
+        languages_to_keep: Optional[List[Language]] = None,
+        apply_form_check: bool = True,
+        apply_download_spam_check: bool = True,
+        download_spam_threshold: float = 0.004,
+    ) -> None:
         super().__init__()
         self.language_detector = LanguageDetectorBuilder.from_all_languages().with_preloaded_language_models().build()
         self.languages_to_keep = languages_to_keep if languages_to_keep is not None else [Language.ENGLISH]
@@ -28,9 +28,7 @@ class PdfFilter:
 
     def _is_form(self, pdf_reader) -> bool:
         # Check if the PDF is a form
-        if pdf_reader.get_form_text_fields():
-            return True
-        return False  # Not a form
+        return bool(pdf_reader.get_form_text_fields())
 
     def _is_download_spam(self, base_text: str) -> bool:
         seo_words = {
@@ -71,7 +69,7 @@ class PdfFilter:
             if self.apply_form_check and self._is_form(pdf_reader):
                 logger.info(f"Filtering out {local_pdf_path} because it's a form")
                 return True  # Filter out
-        except Exception as e:
+        except ValueError as e:
             logger.warning(f"Error reading PDF {local_pdf_path}: {e}")
             return True  # Filter out the PDF if an exception occurs
 
@@ -90,12 +88,8 @@ class PdfFilter:
 
         alpha_count = sum(c.isalpha() for c in base_text)
 
-        if len(base_text) < 200:
+        if len(base_text) < 200 or alpha_count / len(base_text) < 0.50:
             logger.info(f"Keeping {local_pdf_path} on the safe side because not enough text exists in it to analyze")
-            return False  # keep the pdf
-
-        if alpha_count / len(base_text) < 0.50:
-            logger.info(f"Keeping {local_pdf_path} on the safe side because it's text does not contain many letters so it might be OCRed badly")
             return False  # keep the pdf
 
         # Language check

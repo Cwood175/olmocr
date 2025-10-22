@@ -13,6 +13,7 @@ Usage:
   python analyze_documents.py --input_list path/to/s3_paths.txt --output_dir path/to/output --api_key your_gemini_api_key [--parallel 4]
 """
 
+#!/usr/bin/env python3
 import argparse
 import base64
 import concurrent.futures
@@ -61,7 +62,7 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
+    except (boto3.exceptions.BotoCoreError, Exception) as e:
         print(f"Error downloading {s3_path}: {str(e)}")
         return False
 
@@ -99,7 +100,7 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except (pypdf.errors.PdfReadError, OSError) as e:
         print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
         raise
 
@@ -127,7 +128,7 @@ def analyze_document_layout(pdf_path: str, page_num: int, api_key: str) -> Optio
     # Render the PDF page as an image (render_pdf_to_base64png is 1-indexed)
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)
-    except Exception as e:
+    except (ValueError, OSError) as e:
         print(f"Error rendering PDF page: {str(e)}")
         return None
 
@@ -218,7 +219,7 @@ def analyze_document_layout(pdf_path: str, page_num: int, api_key: str) -> Optio
         # Return both the layout analysis and the rendered image (base64 string)
         return (layout_analysis, image_base64)
 
-    except Exception as e:
+    except (ValueError, json.JSONDecodeError) as e:
         print(f"Error analyzing document layout in {pdf_path} page {page_num}: {str(e)}")
         return None
 
@@ -281,7 +282,7 @@ def extract_document_content(pdf_path: str, page_num: int, image_base64: str, ap
         content = response.candidates[0].content.parts[0].text
         return content
 
-    except Exception as e:
+    except (ValueError, json.JSONDecodeError) as e:
         print(f"Error extracting document content from {pdf_path} page {page_num}: {str(e)}")
         return None
 
@@ -414,7 +415,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> D
 
         return results
 
-    except Exception as e:
+    except (ValueError, OSError) as e:
         print(f"Error processing {pdf_filename}: {str(e)}")
         return {"error": f"Error processing {pdf_filename}: {str(e)}"}
     finally:

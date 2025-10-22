@@ -3,9 +3,8 @@ import json
 import os
 from typing import Any, Dict
 
-from openai import OpenAI
-
 from olmocr.data.renderpdf import render_pdf_to_base64png
+from openai import OpenAI
 
 
 def verify_latex_match(

@@ -13,16 +13,18 @@ The script:
 """
 
 import argparse
+import logging
 import os
 import random
 import shutil
-from typing import List, Optional
+from collections.abc import Sequence
+from typing import Optional
 
 import pypdf
 from tqdm import tqdm
 
 
-def copy_directory_structure(src_dir: str, dst_dir: str, exclude_dirs: Optional[List[str]] = None):
+def copy_directory_structure(src_dir: str, dst_dir: str, exclude_dirs: Optional[Sequence[str]] = None):
     """
     Copy entire directory structure from source to destination.
 
@@ -92,7 +94,7 @@ def rotate_pdf(input_path: str, output_path: str, angle: int) -> bool:
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except (pypdf.PdfReadError, OSError) as e:
         print(f"Error rotating PDF {input_path}: {e}")
         return False
 
@@ -163,7 +165,7 @@ def update_frontmatter_rotation(markdown_path: str, rotation_angle: int) -> bool
 
         return True
 
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"Error updating FrontMatter in {markdown_path}: {e}")
         return False
 
@@ -179,24 +181,28 @@ def find_corresponding_markdown(pdf_filename: str, claude_original_dir: str) -> 
     Returns:
         Path to the corresponding markdown file, or None if not found
     """
-    # Extract the base name without extension
-    base_name = os.path.splitext(pdf_filename)[0]
+    try:
+        # Extract the base name without extension
+        base_name = os.path.splitext(pdf_filename)[0]
 
-    # Look for markdown files with pattern: base_name_pg1_repeat1.md
-    pattern = f"{base_name}_pg1_repeat1.md"
+        # Look for markdown files with pattern: base_name_pg1_repeat1.md
+        pattern = f"{base_name}_pg1_repeat1.md"
 
-    # Search in subdirectories of claude_original
-    for root, dirs, files in os.walk(claude_original_dir):
-        if pattern in files:
-            return os.path.join(root, pattern)
+        # Search in subdirectories of claude_original
+        for root, dirs, files in os.walk(claude_original_dir):
+            if pattern in files:
+                return os.path.join(root, pattern)
 
-    # Also try without the _pg1_repeat1 suffix
-    pattern2 = f"{base_name}.md"
-    for root, dirs, files in os.walk(claude_original_dir):
-        if pattern2 in files:
-            return os.path.join(root, pattern2)
+        # Also try without the _pg1_repeat1 suffix
+        pattern2 = f"{base_name}.md"
+        for root, dirs, files in os.walk(claude_original_dir):
+            if pattern2 in files:
+                return os.path.join(root, pattern2)
 
-    return None
+        return None
+    except OSError as e:
+        print(f"Error finding markdown for {pdf_filename}: {e}")
+        return None
 
 
 def main():
@@ -268,57 +274,61 @@ def main():
 
     print(f"Selected {len(pdfs_to_rotate)} PDFs to rotate ({args.rotation_percentage}%)")
 
-    # Step 4: Rotate selected PDFs and update corresponding markdown files
-    rotation_angles = [90, 180, 270]
-    rotated_count = 0
-    markdown_updated_count = 0
+    try:
+        # Step 4: Rotate selected PDFs and update corresponding markdown files
+        rotation_angles = [90, 180, 270]
+        rotated_count = 0
+        markdown_updated_count = 0
 
-    for pdf_path in tqdm(pdfs_to_rotate, desc="Rotating PDFs"):
-        # Choose random rotation angle
-        angle = random.choice(rotation_angles)
+        for pdf_path in tqdm(pdfs_to_rotate, desc="Rotating PDFs"):
+            # Choose random rotation angle
+            angle = random.choice(rotation_angles)
+
+            if args.dry_run:
+                print(f"[DRY RUN] Would rotate {pdf_path} by {angle} degrees")
+            else:
+                # Create a temporary file for the rotated PDF
+                temp_path = pdf_path + ".rotated"
+
+                # Rotate the PDF
+                if rotate_pdf(pdf_path, temp_path, angle):
+                    # Replace original with rotated version
+                    shutil.move(temp_path, pdf_path)
+                    rotated_count += 1
+
+                    # Find and update corresponding markdown file
+                    pdf_filename = os.path.basename(pdf_path)
+                    markdown_path = find_corresponding_markdown(pdf_filename, dst_claude_dir)
+
+                    if markdown_path:
+                        if update_frontmatter_rotation(markdown_path, angle):
+                            markdown_updated_count += 1
+                    else:
+                        # Extract the subdirectory structure from PDF path
+                        rel_pdf_path = os.path.relpath(pdf_path, dst_pdfs_dir)
+                        pdf_subdir = os.path.dirname(rel_pdf_path)
+
+                        # Try to find in the same subdirectory structure
+                        if pdf_subdir:
+                            specific_claude_dir = os.path.join(dst_claude_dir, pdf_subdir)
+                            markdown_path = find_corresponding_markdown(pdf_filename, specific_claude_dir)
+                            if markdown_path and update_frontmatter_rotation(markdown_path, angle):
+                                markdown_updated_count += 1
+                else:
+                    print(f"Failed to rotate {pdf_path}")
+
+        # Print summary
+        print(f"\nRotation augmentation complete!")
+        print(f"  - Rotated {rotated_count}/{len(pdfs_to_rotate)} PDFs")
+        print(f"  - Updated {markdown_updated_count}/{len(pdfs_to_rotate)} markdown files")
 
         if args.dry_run:
-            print(f"[DRY RUN] Would rotate {pdf_path} by {angle} degrees")
-        else:
-            # Create a temporary file for the rotated PDF
-            temp_path = pdf_path + ".rotated"
+            print("\n[DRY RUN] No actual changes were made")
 
-            # Rotate the PDF
-            if rotate_pdf(pdf_path, temp_path, angle):
-                # Replace original with rotated version
-                shutil.move(temp_path, pdf_path)
-                rotated_count += 1
-
-                # Find and update corresponding markdown file
-                pdf_filename = os.path.basename(pdf_path)
-                markdown_path = find_corresponding_markdown(pdf_filename, dst_claude_dir)
-
-                if markdown_path:
-                    if update_frontmatter_rotation(markdown_path, angle):
-                        markdown_updated_count += 1
-                else:
-                    # Extract the subdirectory structure from PDF path
-                    rel_pdf_path = os.path.relpath(pdf_path, dst_pdfs_dir)
-                    pdf_subdir = os.path.dirname(rel_pdf_path)
-
-                    # Try to find in the same subdirectory structure
-                    if pdf_subdir:
-                        specific_claude_dir = os.path.join(dst_claude_dir, pdf_subdir)
-                        markdown_path = find_corresponding_markdown(pdf_filename, specific_claude_dir)
-                        if markdown_path and update_frontmatter_rotation(markdown_path, angle):
-                            markdown_updated_count += 1
-            else:
-                print(f"Failed to rotate {pdf_path}")
-
-    # Print summary
-    print(f"\nRotation augmentation complete!")
-    print(f"  - Rotated {rotated_count}/{len(pdfs_to_rotate)} PDFs")
-    print(f"  - Updated {markdown_updated_count}/{len(pdfs_to_rotate)} markdown files")
-
-    if args.dry_run:
-        print("\n[DRY RUN] No actual changes were made")
-
-    return 0
+        return 0
+    except (OSError, ValueError) as e:
+        print(f"Error in main: {e}")
+        return 1
 
 
 if __name__ == "__main__":

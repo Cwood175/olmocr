@@ -130,7 +130,7 @@ class PIIAnnotation(pydantic.BaseModel):
         return pii_types
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Automatically scan OLMO OCR workspace results using ChatGPT")
     parser.add_argument("workspace", help="OLMO OCR workspace path (s3://bucket/workspace)")
     parser.add_argument("--pages_per_run", type=int, default=30, help="Number of pages per run")
@@ -142,7 +142,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def list_result_files(s3_client, workspace_path):
+def list_result_files(s3_client, workspace_path) -> List[str]:
     """List all JSON result files in the workspace results directory."""
     bucket, prefix = parse_s3_path(workspace_path)
     results_prefix = os.path.join(prefix, "results").rstrip("/") + "/"
@@ -159,7 +159,7 @@ def list_result_files(s3_client, workspace_path):
     return all_files
 
 
-def get_random_pages(s3_client, result_files, count=30):
+def get_random_pages(s3_client, result_files, count=30) -> List[Tuple[str, int, str, str]]:
     """Get random pages from the result files."""
     random_pages = []
 

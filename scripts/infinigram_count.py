@@ -50,7 +50,8 @@ def query_infinigram(ngram, index="v4_rpj_llama_s4", retries=3):
                 result = response.json()
                 if "count" in result:
                     return result["count"]
-        except Exception:  # type: ignore
+        except Exception as exc:
+            logger.error("Error querying infinigram: %s", exc)
             time.sleep(1)
     return 0
 
@@ -98,7 +99,7 @@ def process_document(doc, tokenizer, ngram_size, num_samples, index="v4_rpj_llam
         if ALLOWED_RE.fullmatch(ngram_str) and len(ngram_str.strip()) > ngram_size * 3:
             count = query_infinigram(ngram_str, index=index)
             flag = "YES" if count > 0 else "NO"
-            valid_ngram_details.append((flag, ngram_str))
+            valid_ngram_details.append((flag, str(ngram_str)))
         attempts += 1
 
     match_count = sum(1 for flag, _ in valid_ngram_details if flag == "YES")

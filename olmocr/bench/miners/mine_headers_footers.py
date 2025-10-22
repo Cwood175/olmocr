@@ -13,6 +13,7 @@ Usage:
   python mine_headers_footers.py --input_list path/to/s3_paths.txt --output_dir path/to/output --api_key your_gemini_api_key
 """
 
+#!/usr/bin/env python3
 import argparse
 import base64
 import json
@@ -21,9 +22,9 @@ import random
 from typing import List, Optional
 
 import boto3
-import pypdf
 from google import genai
 from google.genai import types
+import pypdf
 from tqdm import tqdm
 
 from olmocr.bench.tests import TextPresenceTest, save_tests
@@ -59,7 +60,7 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         return True
     except Exception as e:
         print(f"Error downloading {s3_path}: {str(e)}")
-        return False
+        raise
 
 
 def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> bool:
@@ -247,6 +248,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str, test
 
     except Exception as e:
         print(f"Error processing {pdf_filename}: {str(e)}")
+        raise
     finally:
         # Clean up temporary file
         if os.path.exists(local_pdf_path):

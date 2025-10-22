@@ -23,7 +23,6 @@ import re
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
 
 import pypdf
 from anthropic import Anthropic
@@ -51,7 +50,7 @@ def extract_code_block(initial_response):
     code_blocks_no_newline = re.findall(r"```(.*?)```", initial_response, re.DOTALL)
     if code_blocks_no_newline:
         return code_blocks_no_newline[-1].strip()
-    return None
+    raise ValueError("No code block found in response")
 
 
 def generate_html_from_image(client, image_base64):
@@ -121,10 +120,10 @@ def generate_html_from_image(client, image_base64):
         return extract_code_block(initial_html)
     except Exception as e:
         print(f"Error calling Claude API: {e}")
-        return None
+        raise
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> List[Dict]:
+def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int) -> list[dict]:
     """
     Generate order tests from HTML content by splitting the main text into sentences and pairing them.
     Only order tests are generated.
@@ -314,7 +313,7 @@ def process_pdf(pdf_info, args, client):
 
     try:
         if os.path.exists(temp_pdf_dir):
-            subprocess.run(["rm", "-rf", temp_pdf_dir])
+            subprocess.run(["rm", "-rf", temp_pdf_dir], check=True)
     except Exception as e:
         print(f"Error cleaning up temp directory {temp_pdf_dir}: {e}")
 

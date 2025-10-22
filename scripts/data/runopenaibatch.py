@@ -168,7 +168,7 @@ def get_done_total(folder_path):
 def process_folder(folder_path: str, max_gb: int):
     output_folder = f"{folder_path.rstrip('/')}_done"
     os.makedirs(output_folder, exist_ok=True)
-    last_loop_time = datetime.datetime.now()
+    last_loop_time = datetime.datetime.now(tz=datetime.timezone.utc)
 
     starting_free_space = MAX_OPENAI_DISK_SPACE - get_total_space_usage()
 
@@ -185,7 +185,7 @@ def process_folder(folder_path: str, max_gb: int):
         print(f"Processing {os.path.basename(work_item['filename'])}, cur status = {work_item['state']}")
 
         # If all work items have been checked on, then you need to sleep a bit
-        if last_loop_time > datetime.datetime.now() - datetime.timedelta(seconds=1):
+        if last_loop_time > datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=1):
             time.sleep(0.2)
 
         if work_item["state"] == "init":
@@ -227,13 +227,13 @@ def process_folder(folder_path: str, max_gb: int):
 
                 try:
                     client.files.delete(batch_data.input_file_id)
-                except:
+                except Exception as ex:
                     print("Could not delete old file data")
             else:
                 # Update the time you checked so you can move onto the next time
                 update_state(folder_path, work_item["filename"])
 
-        last_loop_time = datetime.datetime.now()
+        last_loop_time = datetime.datetime.now(tz=datetime.timezone.utc)
 
     print("All work has been completed")
 

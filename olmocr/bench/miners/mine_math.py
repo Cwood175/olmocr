@@ -16,6 +16,8 @@ Usage:
     [--max_pages 3] [--parallel 8] [--sim_threshold 0.7]
 """
 
+from __future__ import annotations
+
 import argparse
 import glob
 import logging
@@ -30,12 +32,7 @@ import numpy as np
 from tqdm import tqdm
 
 from olmocr.bench.katex.render import render_equation
-from olmocr.bench.tests import (
-    MathTest,  # Assumes MathTest is JSON serializable or has __dict__
-)
-from olmocr.bench.tests import (
-    save_tests,  # Original saving function (not used for incremental save)
-)
+from olmocr.bench.tests import MathTest, save_tests
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -66,7 +63,7 @@ def extract_tex_content(tex_file: str) -> str:
         try:
             with open(tex_file, "r", encoding="latin-1") as f:
                 return f.read()
-        except Exception as e:
+        except OSError as e:
             logging.error("Error reading %s: %s", tex_file, e)
             return ""
 
@@ -76,7 +73,7 @@ def extract_candidate_content(candidate_file: str) -> str:
     try:
         with open(candidate_file, "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
+    except OSError as e:
         logging.error("Error reading %s: %s", candidate_file, e)
         return ""
 
@@ -254,7 +251,7 @@ def process_candidate_file(candidate_file: str, pdfs_folder: str, sim_threshold:
         return tests
 
     # Filter out equations that are too short, remove duplicates, and shuffle
-    math_equations = [(eq_type, eq.strip()) for (eq_type, eq) in math_equations if len(eq.strip()) > 20]
+    math_equations = [(eq_type, eq.strip()) for eq_type, eq in math_equations if len(eq.strip()) > 20]
     math_equations = list(set(math_equations))
     random.shuffle(math_equations)
 

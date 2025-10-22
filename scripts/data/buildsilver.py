@@ -12,12 +12,12 @@ from pypdf import PdfReader
 from tqdm import tqdm
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
-from olmocr.filter import PdfFilter
+from olmocr.filter.filter import PdfFilter
 from olmocr.prompts import (
     build_openai_silver_data_prompt,
     openai_response_format_schema,
 )
-from olmocr.prompts.anchor import get_anchor_text
+from olmocr.prompts.anchor import get_anchor_text  # noqa: F401
 
 TARGET_IMAGE_DIM = 2048
 

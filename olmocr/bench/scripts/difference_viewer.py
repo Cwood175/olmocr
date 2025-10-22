@@ -6,10 +6,9 @@ import os
 import sys
 from collections import defaultdict
 
+from olmocr.data.renderpdf import render_pdf_to_base64png
 from runners.run_chatgpt import run_chatgpt
 from runners.run_gemini import run_gemini
-
-from olmocr.data.renderpdf import render_pdf_to_base64png
 
 
 def parse_rules_file(file_path):

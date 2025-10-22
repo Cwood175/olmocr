@@ -109,7 +109,7 @@ def build_comparison_report(entries_dict, datastore):
       comparisons[(A, B)] = [A_wins, B_wins],
         where A < B lexicographically in that tuple.
     """
-    comparisons: DefaultDict[Any, list[int]] = defaultdict(lambda: [0, 0])
+    comparisons: DefaultDict[str, list[int]] = defaultdict(lambda: [0, 0])
 
     for entry_id, vote in datastore.items():
         if entry_id not in entries_dict:

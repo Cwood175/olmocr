@@ -45,12 +45,12 @@ def parse_batch_response(response_line: str) -> Optional[Dict[str, Any]]:
             print(f"Error in response for {custom_id}: {data.get('error', 'Unknown error')}")
             return None
 
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"Error parsing response line: {e}")
         return None
 
 
-def format_frontmatter_markdown(response_data: Dict[str, Any]) -> str:
+def format_frontmatter_markdown(response_data: dict[str, Any]) -> str:
     """
     Format the response data as FrontMatter markdown.
 
@@ -133,7 +133,7 @@ def process_single_result(custom_id: str, response_content: Dict[str, Any], orig
 
         return True
 
-    except Exception as e:
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as e:
         print(f"Error processing {custom_id}: {e}")
         return False
 
@@ -215,7 +215,7 @@ def process_batch_results(batch_results_dir: Path, original_pdf_dir: Path, outpu
     return successful
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Process OpenAI batch results and create output folder with PDFs and Markdown files")
     parser.add_argument("batch_results_dir", type=str, help="Directory containing completed OpenAI batch result files (JSONL)")
     parser.add_argument(

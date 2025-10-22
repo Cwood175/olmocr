@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -75,7 +77,7 @@ def process_test_case(case: Dict[str, Any], client, pdf_dir: str, model: str = "
         case_with_response["gpt4_response"] = f"ERROR: {str(e)}"
         # Print the error for debugging
         print(f"Error processing {case.get('id', 'unknown')}: {str(e)}")
-        return case_with_response
+        return case_with_response  # noqa: BLE001
 
 
 def process_jsonl_file(input_file: str, output_file: str, api_key: str, pdf_dir: str, num_workers: int = 8, model: str = "gpt-4o") -> None:
@@ -119,7 +121,7 @@ def process_jsonl_file(input_file: str, output_file: str, api_key: str, pdf_dir:
                 print(f"Error processing case {case.get('id', 'unknown')}: {str(e)}")
                 # Add failed case with error message
                 case["gpt4_response"] = f"PROCESSING_ERROR: {str(e)}"
-                results.append(case)
+                results.append(case)  # noqa: BLE001
 
     # Filter for cases where GPT-4 responded with "NO"
     no_responses = [result for result in results if "gpt4_response" in result and result["gpt4_response"].startswith("NO")]
@@ -152,7 +154,7 @@ def main():
     if not os.path.isdir(args.pdf_dir):
         raise ValueError(f"PDF directory {args.pdf_dir} does not exist")
 
-    process_jsonl_file(input_file=args.input, output_file=args.output, api_key=api_key, pdf_dir=args.pdf_dir, num_workers=args.workers, model=args.model)
+    process_jsonl_file(input_file=args.input, output_file=args.output, api_key=api_key, pdf_dir=args.pdf_dir, num_workers=args.workers, model=args.model)  # noqa: BLE001
 
 
 if __name__ == "__main__":
