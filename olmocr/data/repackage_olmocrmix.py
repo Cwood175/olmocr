@@ -14,12 +14,13 @@ from __future__ import annotations
 import argparse
 import json
 import tarfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
 
 import pandas as pd
 from tqdm import tqdm
+from yaml import YAMLError
 
 from olmocr.prompts import PageResponse
 from olmocr.train.dataloader import FrontMatterParser
@@ -33,17 +34,17 @@ class DocumentRecord:
     markdown_path: Path
     pdf_path: Path
     pdf_size: int
-    primary_language: Optional[str]
-    is_rotation_valid: Optional[bool]
-    rotation_correction: Optional[int]
-    is_table: Optional[bool]
-    is_diagram: Optional[bool]
-    natural_text: Optional[str]
-    page_number: Optional[int]
-    url: Optional[str]
-    extras_json: Optional[str]
-    chunk_name: Optional[str] = None
-    pdf_relpath: Optional[str] = None
+    primary_language: str | None
+    is_rotation_valid: bool | None
+    rotation_correction: int | None
+    is_table: bool | None
+    is_diagram: bool | None
+    natural_text: str | None
+    page_number: int | None
+    url: str | None
+    extras_json: str | None
+    chunk_name: str | None = None
+    pdf_relpath: str | None = None
 
 
 def infer_doc_id(md_path: Path, processed_root: Path) -> str:
@@ -55,7 +56,7 @@ def infer_doc_id(md_path: Path, processed_root: Path) -> str:
     return str(rel.with_suffix(""))
 
 
-def infer_pdf_path(md_path: Path, doc_id: str, pdf_root: Optional[Path]) -> Path:
+def infer_pdf_path(md_path: Path, doc_id: str, pdf_root: Path | None) -> Path:
     """Locate the PDF file corresponding to the markdown doc."""
     pdf_candidate = md_path.with_suffix(".pdf")
     if pdf_candidate.exists():
@@ -69,7 +70,7 @@ def infer_pdf_path(md_path: Path, doc_id: str, pdf_root: Optional[Path]) -> Path
     raise FileNotFoundError(f"No PDF found for {md_path}")
 
 
-def normalize_response_payload(front_matter: Dict[str, object], body_text: str) -> Dict[str, object]:
+def normalize_response_payload(front_matter: dict[str, object], body_text: str) -> dict[str, object]:
     """Merge parsed fields with the natural text payload."""
     payload = dict(front_matter)
     text = body_text if body_text and body_text.strip() else None
@@ -96,7 +97,7 @@ def normalize_response_payload(front_matter: Dict[str, object], body_text: str) 
     return payload
 
 
-def load_url_mappings(processed_dir: Path) -> Dict[str, str]:
+def load_url_mappings(processed_dir: Path) -> dict[str, str]:
     """Load URL mappings from urls.jsonl if it exists."""
     urls_file = processed_dir / "urls.jsonl"
     url_map = {}
@@ -112,12 +113,12 @@ def load_url_mappings(processed_dir: Path) -> Dict[str, str]:
     return url_map
 
 
-def guess_url(front_matter: Dict[str, object], doc_id: str, source_url_template: Optional[str]) -> Optional[str]:
+def guess_url(front_matter: dict[str, object], doc_id: str, source_url_template: str | None) -> str | None:
     # TODO, we will have to add some better support for this
     return None
 
 
-def parse_page_number(doc_id: str, front_matter: Dict[str, object]) -> Optional[int]:
+def parse_page_number(doc_id: str, front_matter: dict[str, object]) -> int | None:
     """Extract page number from front matter or doc_id suffix."""
     if "page_number" in front_matter:
         value = front_matter["page_number"]
@@ -137,12 +138,12 @@ def parse_page_number(doc_id: str, front_matter: Dict[str, object]) -> Optional[
 
 def collect_documents(
     processed_dir: Path,
-    pdf_root: Optional[Path],
-    url_template: Optional[str],
+    pdf_root: Path | None,
+    url_template: str | None,
     strict: bool,
-) -> List[DocumentRecord]:
+) -> list[DocumentRecord]:
     """Scan processed markdown/pdf pairs into DocumentRecord objects."""
-    records: List[DocumentRecord] = []
+    records: list[DocumentRecord] = []
     md_files = sorted(processed_dir.rglob("*.md"))
     canonical_keys = {
         "primary_language",
@@ -199,7 +200,7 @@ def collect_documents(
                     extras_json=extras_json,
                 )
             )
-        except Exception as exc:
+        except (OSError, TypeError, ValueError, YAMLError) as exc:
             if strict:
                 raise
             tqdm.write(f"[WARN] Skipping {md_path}: {exc}")
@@ -207,12 +208,12 @@ def collect_documents(
     return records
 
 
-def write_parquet(records: List[DocumentRecord], parquet_path: Path, compression: str) -> None:
+def write_parquet(records: list[DocumentRecord], parquet_path: Path, compression: str) -> None:
     """Emit the textual payload into a parquet file."""
     if not records:
         raise RuntimeError("No records to write into parquet")
 
-    pdf_relpaths: List[str] = []
+    pdf_relpaths: list[str] = []
     for rec in records:
         path_value = rec.pdf_relpath or f"{rec.doc_id}.pdf"
         pdf_relpaths.append(path_value)
@@ -237,9 +238,9 @@ def write_parquet(records: List[DocumentRecord], parquet_path: Path, compression
     df.to_parquet(parquet_path, compression=compression)
 
 
-def chunk_records_by_size(records: List[DocumentRecord], max_bytes: int) -> Iterator[List[DocumentRecord]]:
+def chunk_records_by_size(records: list[DocumentRecord], max_bytes: int) -> Iterator[list[DocumentRecord]]:
     """Yield batches of records whose summed PDF sizes stay under max_bytes."""
-    batch: List[DocumentRecord] = []
+    batch: list[DocumentRecord] = []
     batch_size = 0
     overhead = 1024  # rough tar header allowance per entry
 
@@ -261,7 +262,7 @@ def chunk_records_by_size(records: List[DocumentRecord], max_bytes: int) -> Iter
 
 
 def write_pdf_tarballs(
-    records: List[DocumentRecord],
+    records: list[DocumentRecord],
     pdf_dir: Path,
     chunk_prefix: str,
     max_bytes: int,
@@ -272,7 +273,7 @@ def write_pdf_tarballs(
     pdf_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    manifest_rows: List[Dict[str, str]] = []
+    manifest_rows: list[dict[str, str]] = []
     batches = chunk_records_by_size(records, max_bytes)
 
     normalized_dir = chunk_dir_name.strip().strip("/") if chunk_dir_name else ""
@@ -293,8 +294,7 @@ def write_pdf_tarballs(
             raise RuntimeError(f"{tar_path} exceeded size cap ({actual_size} bytes > {max_bytes} bytes)")
 
     with manifest_path.open("w", encoding="utf-8") as manifest_file:
-        for row in manifest_rows:
-            manifest_file.write(json.dumps(row) + "\n")
+        manifest_file.writelines(json.dumps(row) + "\n" for row in manifest_rows)
 
 
 def parse_args() -> argparse.Namespace:

@@ -7,7 +7,7 @@ import logging
 import math
 import os
 import shutil
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 class QwenDataCollator:
     """Data collator for vision-language models that handles numpy arrays."""
 
-    def __init__(self, max_token_len: Optional[int] = None):
+    def __init__(self, max_token_len: int | None = None):
         self.max_token_len = max_token_len
 
     def __call__(self, examples):
@@ -100,7 +100,7 @@ def save_checkpoint(
     samples_seen: int,
     best_metric: float,
     output_dir: str,
-    save_total_limit: Optional[int] = None,
+    save_total_limit: int | None = None,
 ):
     """Save model, optimizer, scheduler, and training state."""
     checkpoint_dir = os.path.join(output_dir, f"checkpoint-{global_step}")
@@ -135,12 +135,12 @@ def save_checkpoint(
 
 def load_checkpoint(
     model_class: type,
-    init_kwargs: Dict[str, Any],
+    init_kwargs: dict[str, Any],
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Any,
     checkpoint_dir: str,
     device: torch.device,
-) -> tuple[torch.nn.Module, Dict[str, Any]]:
+) -> tuple[torch.nn.Module, dict[str, Any]]:
     """Load model, optimizer, scheduler, and training state from checkpoint."""
     model = model_class.from_pretrained(checkpoint_dir, **init_kwargs)
     model.to(device)
@@ -155,9 +155,9 @@ def load_checkpoint(
 
 def evaluate_model(
     model: torch.nn.Module,
-    eval_dataloaders: Dict[str, DataLoader],
+    eval_dataloaders: dict[str, DataLoader],
     device: torch.device,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Evaluate on all eval datasets and return average loss per dataset."""
     model.eval()
     eval_metrics = {}
@@ -215,7 +215,7 @@ def create_train_dataloader(
         epoch_generator.manual_seed(config.training.data_seed + epoch_num)
     else:
         # Use a random seed if no data_seed specified
-        epoch_generator.manual_seed(int(torch.randint(0, 2**32 - 1, (1,)).item()))
+        epoch_generator.manual_seed(torch.randint(0, 2**32 - 1, (1,)).item())
 
     return DataLoader(
         train_dataset,
@@ -291,7 +291,7 @@ def main():
         root_dir = dataset_cfg["root_dir"]
         pipeline_steps = config.get_pipeline_steps(dataset_cfg["pipeline"], processor)
 
-        logger.info(f"Creating training dataset {i+1} from: {root_dir}")
+        logger.info(f"Creating training dataset {i + 1} from: {root_dir}")
         dataset = BaseMarkdownPDFDataset(root_dir, pipeline_steps)
         logger.info(f"Found {len(dataset)} samples")
 
@@ -310,7 +310,7 @@ def main():
         pipeline_steps = config.get_pipeline_steps(dataset_cfg["pipeline"], processor)
 
         # Use dataset name if provided, otherwise use root_dir as name
-        dataset_name = dataset_cfg.get("name", f"eval_dataset_{i+1}")
+        dataset_name = dataset_cfg.get("name", f"eval_dataset_{i + 1}")
 
         logger.info(f"Creating evaluation dataset '{dataset_name}' from: {root_dir}")
         dataset = BaseMarkdownPDFDataset(root_dir, pipeline_steps)
@@ -397,9 +397,21 @@ def main():
 
         # Create Adam groups with different learning rates
         adam_groups = [
-            dict(params=head_params, lr=float(config.training.learning_rate) * config.training.muon_lr_multiplier_head, use_muon=False),
-            dict(params=embed_params, lr=float(config.training.learning_rate) * config.training.muon_lr_multiplier_embed, use_muon=False),
-            dict(params=scalar_params, lr=float(config.training.learning_rate) * config.training.muon_lr_multiplier_scalar, use_muon=False),
+            {
+                "params": head_params,
+                "lr": float(config.training.learning_rate) * config.training.muon_lr_multiplier_head,
+                "use_muon": False,
+            },
+            {
+                "params": embed_params,
+                "lr": float(config.training.learning_rate) * config.training.muon_lr_multiplier_embed,
+                "use_muon": False,
+            },
+            {
+                "params": scalar_params,
+                "lr": float(config.training.learning_rate) * config.training.muon_lr_multiplier_scalar,
+                "use_muon": False,
+            },
         ]
 
         # Add Adam hyperparameters to groups
@@ -409,13 +421,13 @@ def main():
             g["weight_decay"] = config.training.weight_decay
 
         # Create Muon group
-        muon_group = dict(
-            params=hidden_matrix_params,
-            lr=float(config.training.learning_rate),
-            momentum=config.training.muon_momentum,
-            weight_decay=config.training.weight_decay,
-            use_muon=True,
-        )
+        muon_group = {
+            "params": hidden_matrix_params,
+            "lr": float(config.training.learning_rate),
+            "momentum": config.training.muon_momentum,
+            "weight_decay": config.training.weight_decay,
+            "use_muon": True,
+        }
 
         # Combine all groups
         param_groups = [*adam_groups, muon_group]
@@ -426,8 +438,8 @@ def main():
     # Total training steps calculation
     samples_per_step = config.training.per_device_train_batch_size * config.training.gradient_accumulation_steps
     num_update_steps_per_epoch = math.ceil(len(train_dataset) / samples_per_step)
-    max_train_steps = int(math.ceil(config.training.num_train_epochs * num_update_steps_per_epoch))
-    max_train_samples = int(math.ceil(config.training.num_train_epochs * len(train_dataset)))
+    max_train_steps = math.ceil(config.training.num_train_epochs * num_update_steps_per_epoch)
+    max_train_samples = math.ceil(config.training.num_train_epochs * len(train_dataset))
 
     # Set up scheduler
     lr_scheduler = get_scheduler(
@@ -507,7 +519,7 @@ def main():
                 except StopIteration:
                     # We've reached the end of the epoch while skipping
                     # This shouldn't normally happen, but handle it gracefully
-                    logger.warning(f"Reached end of epoch while skipping batches. Creating new epoch.")
+                    logger.warning("Reached end of epoch while skipping batches. Creating new epoch.")
                     current_epoch_num += 1
                     train_dataloader = create_train_dataloader(
                         train_dataset,
@@ -605,11 +617,11 @@ def main():
 
                     # Update best metric
                     current_metric = metrics.get(config.training.metric_for_best_model, None)
-                    if current_metric is not None:
-                        if (config.training.greater_is_better and current_metric > best_metric) or (
-                            not config.training.greater_is_better and current_metric < best_metric
-                        ):
-                            best_metric = current_metric
+                    if current_metric is not None and (
+                        (config.training.greater_is_better and current_metric > best_metric)
+                        or (not config.training.greater_is_better and current_metric < best_metric)
+                    ):
+                        best_metric = current_metric
 
                     # Return to training mode
                     model.train()

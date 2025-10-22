@@ -7,16 +7,17 @@ import logging
 import os
 import random
 import re
+import shutil
 import subprocess
 import tempfile
 import uuid
 from collections import defaultdict
-from typing import Dict, List
 
 import pypdf
-from anthropic import AsyncAnthropic
+from anthropic import APIError, AsyncAnthropic
 from bs4 import BeautifulSoup
 from markdownify import SPACES, MarkdownConverter
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 from syntok.segmenter import process
 from tqdm import tqdm
@@ -33,10 +34,56 @@ total_input_tokens = 0
 total_output_tokens = 0
 
 
+def _create_temporary_pdf():
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+        return tmp_pdf.name
+
+
+def _read_binary_file(path):
+    with open(path, "rb") as file:
+        return file.read()
+
+
+def _write_text_file(path, content, mode="w"):
+    with open(path, mode) as file:
+        file.write(content)
+
+
+def _remove_file_if_exists(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _reservoir_sample_pdf_paths(input_list, random_gen):
+    pdf_paths = []
+    with open(input_list) as file:
+        for i, line in enumerate(tqdm(file)):
+            line = line.strip()
+            if not line:
+                continue
+
+            if i < 100000:
+                pdf_paths.append(line)
+            else:
+                # Randomly replace elements with decreasing probability
+                j = random_gen.randint(0, i)
+                if j < 100000:
+                    pdf_paths[j] = line
+
+    return pdf_paths
+
+
 def get_git_commit_hash():
     """Get the current git commit hash, if available."""
     try:
-        result = subprocess.run(["git", "rev-parse", "HEAD"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return result.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         # Git not available or not a git repository
@@ -135,17 +182,20 @@ def download_s3_pdf(path, local_path):
     # Check if it's a local path
     if os.path.exists(path):
         # It's a local file, just copy it
-        import shutil
-
         try:
             shutil.copy2(path, local_path)
             return True
-        except Exception as e:
+        except OSError as e:
             print(f"Failed to copy local file {path}: {e}")
             return False
     elif path.startswith("s3://"):
         # It's an S3 path, download it
-        result = subprocess.run(["aws", "s3", "cp", path, local_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            ["aws", "s3", "cp", path, local_path],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         return result.returncode == 0
     else:
         # Assume it's a relative local path that doesn't exist yet
@@ -301,18 +351,17 @@ def html_to_markdown_with_frontmatter(html_content):
 
     # Create FrontMatter
     frontmatter = f"""---
-primary_language: {metadata['primary_language']}
-is_rotation_valid: {metadata['is_rotation_valid']}
-rotation_correction: {metadata['rotation_correction']}
-is_table: {metadata['is_table']}
-is_diagram: {metadata['is_diagram']}
+primary_language: {metadata["primary_language"]}
+is_rotation_valid: {metadata["is_rotation_valid"]}
+rotation_correction: {metadata["rotation_correction"]}
+is_table: {metadata["is_table"]}
+is_diagram: {metadata["is_diagram"]}
 ---"""
 
     # Combine FrontMatter with markdown content
     if markdown_content:
         return f"{frontmatter}\n{markdown_content}"
-    else:
-        return frontmatter
+    return frontmatter
 
 
 def extract_code_block(initial_response):
@@ -486,9 +535,8 @@ async def generate_html_from_image(client, image_base64):
             return None
 
         # Step 3: Render the initial HTML to PDF and then back to PNG for comparison
-        # Create a temporary PDF file
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-            tmp_pdf_path = tmp_pdf.name
+        # Create a temporary PDF file without blocking the event loop
+        tmp_pdf_path = await asyncio.to_thread(_create_temporary_pdf)
 
         try:
             # Render HTML to PDF using existing function
@@ -544,8 +592,7 @@ async def generate_html_from_image(client, image_base64):
                     }
                 ],
             ) as refinement_stream:
-
-                async for event in refinement_stream:
+                async for _event in refinement_stream:
                     pass
 
                 refinement_response = await refinement_stream.get_final_message()
@@ -573,16 +620,14 @@ async def generate_html_from_image(client, image_base64):
             if refined_html:
                 print("Successfully refined HTML using visual comparison")
                 return refined_html
-            else:
-                print("Warning: No HTML code block found in refinement response, using initial HTML")
-                return initial_html
+            print("Warning: No HTML code block found in refinement response, using initial HTML")
+            return initial_html
 
         finally:
             # Clean up temporary PDF file
-            if os.path.exists(tmp_pdf_path):
-                os.remove(tmp_pdf_path)
+            await asyncio.to_thread(_remove_file_if_exists, tmp_pdf_path)
 
-    except Exception as e:
+    except (APIError, OSError, PlaywrightError, ValueError, pypdf.errors.PyPdfError) as e:
         print(f"Error calling Claude API: {e}")
         return None
 
@@ -623,8 +668,8 @@ def extract_page_from_pdf(input_path, output_path, page_num):
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except (OSError, pypdf.errors.PyPdfError) as e:
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         return False
 
 
@@ -720,22 +765,21 @@ async def render_pdf_with_playwright(html_content, output_pdf_path, png_width, p
                     if len(reader.pages) == 1:
                         print(f"Successfully rendered as a single page PDF with scale factor {scale}")
                         return True
-                    else:
-                        print(f"PDF has {len(reader.pages)} pages with scale factor {scale}, trying a smaller scale...")
-                        # Continue to the next scale factor
-                except Exception as pdf_check_error:
+                    print(f"PDF has {len(reader.pages)} pages with scale factor {scale}, trying a smaller scale...")
+                    # Continue to the next scale factor
+                except (OSError, pypdf.errors.PyPdfError) as pdf_check_error:
                     print(f"Error checking PDF page count: {pdf_check_error}")
                     return False
 
-        except Exception as e:
-            print(f"Error rendering PDF with Playwright at scale {scale}: {str(e)}")
+        except (OSError, PlaywrightError, ValueError) as e:
+            print(f"Error rendering PDF with Playwright at scale {scale}: {e!s}")
             # Try the next scale factor
 
     print("Failed to render PDF as a single page with any scale factor")
     return False
 
 
-def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, random_gen: random.Random, verbose_table_testing: bool = False) -> List[Dict]:
+def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, random_gen: random.Random, verbose_table_testing: bool = False) -> list[dict]:
     """
     Generate tests from HTML content parsed from the PDF.
 
@@ -998,7 +1042,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, rand
                     table_html = str(tables[table_idx])
 
                     # Run the test against the original HTML
-                    passed, explanation = test_obj.run(table_html)
+                    passed, _ = test_obj.run(table_html)
                 else:
                     # Shouldn't happen, but handle it gracefully
                     passed = False
@@ -1048,26 +1092,24 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, rand
 
                 sentence_str = sentence_str.strip()
 
-                if sentence_str:
-                    # Skip HTML content that might still be in markdown
-                    if not sentence_str.startswith("<") and not sentence_str.endswith(">"):
-                        # Skip image placeholders - match any markdown image syntax ![...](...)
-                        if re.search(r"!\[.*?\]\(.*?\)", sentence_str):
-                            continue
+                # Skip HTML content that might still be in markdown
+                if sentence_str and not sentence_str.startswith("<") and not sentence_str.endswith(">"):
+                    # Skip image placeholders - match any markdown image syntax ![...](...)
+                    if re.search(r"!\[.*?\]\(.*?\)", sentence_str):
+                        continue
 
-                        # Remove leading # marks (markdown headers)
-                        while sentence_str.startswith("#"):
-                            sentence_str = sentence_str[1:]
-                        sentence_str = sentence_str.strip()
+                    # Remove leading # marks (markdown headers)
+                    while sentence_str.startswith("#"):
+                        sentence_str = sentence_str[1:]
+                    sentence_str = sentence_str.strip()
 
-                        # Remove leading "- " for unordered lists
-                        if sentence_str.startswith("- "):
-                            sentence_str = sentence_str[2:]
+                    # Remove leading "- " for unordered lists
+                    sentence_str = sentence_str.removeprefix("- ")
 
-                        sentence_str = sentence_str.strip()
+                    sentence_str = sentence_str.strip()
 
-                        if sentence_str:  # Only add if there's still content after cleaning
-                            sentences.append(sentence_str)
+                    if sentence_str:  # Only add if there's still content after cleaning
+                        sentences.append(sentence_str)
 
     # Add a few random ordering tests
     all_indexes = list(range(len(sentences)))
@@ -1138,7 +1180,7 @@ def generate_tests_from_html(html_content: str, pdf_id: str, page_num: int, rand
             unique_equations.append(eq)
 
     # Create math tests for up to 50 unique equations
-    for i, equation in enumerate(unique_equations[:50]):
+    for equation in unique_equations[:50]:
         tests.append(
             {
                 "pdf": pdf_filename,
@@ -1252,9 +1294,8 @@ async def process_pdf(pdf_info, args, client, pdf_filter=None):
         return None
 
     # Seed with SHA1 hash of PDF contents for reproducibility
-    with open(local_pdf_path, "rb") as f:
-        pdf_content = f.read()
-        pdf_hash = hashlib.sha1(pdf_content).hexdigest()
+    pdf_content = await asyncio.to_thread(_read_binary_file, local_pdf_path)
+    pdf_hash = hashlib.sha1(pdf_content).hexdigest()
 
     # Use the first 8 characters of the hash as an integer seed
     seed = int(pdf_hash[:8], 16)
@@ -1314,15 +1355,13 @@ async def process_pdf(pdf_info, args, client, pdf_filter=None):
 
         # Save HTML to output directory
         html_path = os.path.join(html_dir, f"{pdf_id}_page{page_num}.html")
-        with open(html_path, "w") as f:
-            f.write(html_content)
+        await asyncio.to_thread(_write_text_file, html_path, html_content)
 
         # Convert HTML to markdown with FrontMatter and save
         markdown_content = html_to_markdown_with_frontmatter(html_content)
         markdown_filename = f"{pdf_id}_page{page_num}.md"
         markdown_path = os.path.join(training_dir, markdown_filename)
-        with open(markdown_path, "w") as f:
-            f.write(markdown_content)
+        await asyncio.to_thread(_write_text_file, markdown_path, markdown_content)
 
         # Create soft link to PDF in training directory
         pdf_link_name = f"{pdf_id}_page{page_num}.pdf"
@@ -1367,7 +1406,7 @@ async def process_pdf(pdf_info, args, client, pdf_filter=None):
                 else:
                     print(f"Failed to render as a single page PDF: {playwright_pdf_path}")
                     playwright_pdf_path = None
-            except Exception as e:
+            except (OSError, PlaywrightError, ValueError, pypdf.errors.PyPdfError) as e:
                 print(f"Failed to render with Playwright: {e}")
                 playwright_pdf_path = None
                 render_success = False
@@ -1409,13 +1448,12 @@ async def process_pdf(pdf_info, args, client, pdf_filter=None):
             "tests": tests,
             "num_tests": len(tests),
         }
-    except Exception as e:
+    except (APIError, OSError, PlaywrightError, TypeError, ValueError, pypdf.errors.PyPdfError) as e:
         print(f"Error processing {pdf_path}: {e}")
         return None
     finally:
         # Clean up temp directory for this PDF
-        if os.path.exists(temp_pdf_dir):
-            subprocess.run(["rm", "-rf", temp_pdf_dir])
+        await asyncio.to_thread(shutil.rmtree, temp_pdf_dir, True)
 
 
 async def main():
@@ -1466,19 +1504,7 @@ async def main():
     if os.path.isdir(args.input_list):
         pdf_paths = list(glob.glob(os.path.join(args.input_list, "*.pdf"), recursive=True))
     else:
-        with open(args.input_list, "r") as f:
-            for i, line in enumerate(tqdm(f)):
-                line = line.strip()
-                if not line:
-                    continue
-
-                if i < 100000:
-                    pdf_paths.append(line)
-                else:
-                    # Randomly replace elements with decreasing probability
-                    j = random_gen.randint(0, i)
-                    if j < 100000:
-                        pdf_paths[j] = line
+        pdf_paths = await asyncio.to_thread(_reservoir_sample_pdf_paths, args.input_list, random_gen)
 
     print(f"Found {len(pdf_paths)} PDF paths in input list")
 
@@ -1490,13 +1516,13 @@ async def main():
     bench_data_dir = os.path.join(args.output_dir, "bench_data")
     os.makedirs(bench_data_dir, exist_ok=True)
     synthetic_json_path = os.path.join(bench_data_dir, f"{args.name}.jsonl")
-    open(synthetic_json_path, "w").close()  # Create empty file
+    await asyncio.to_thread(_write_text_file, synthetic_json_path, "")
 
     # Initialize the metadata JSONL file
     metadata_dir = os.path.join(args.output_dir, "metadata")
     os.makedirs(metadata_dir, exist_ok=True)
     metadata_json_path = os.path.join(metadata_dir, f"{args.name}.jsonl")
-    open(metadata_json_path, "w").close()  # Create empty file
+    await asyncio.to_thread(_write_text_file, metadata_json_path, "")
 
     # Counter for test statistics
     test_counter = 0
@@ -1515,14 +1541,21 @@ async def main():
                 # Append tests to synthetic.json as they're created (JSONL format)
                 async with file_lock:
                     # Append each test as a separate JSON line
-                    with open(synthetic_json_path, "a") as f:
-                        for test in result["tests"]:
-                            f.write(json.dumps(test) + "\n")
+                    test_lines = "".join(json.dumps(test) + "\n" for test in result["tests"])
+                    await asyncio.to_thread(_write_text_file, synthetic_json_path, test_lines, "a")
 
                     # Write metadata mapping (pdf_id to source URL)
-                    with open(metadata_json_path, "a") as f:
-                        metadata = {"pdf_id": result["pdf_id"], "source_url": result["pdf_path"], "page_number": result["page_number"]}
-                        f.write(json.dumps(metadata) + "\n")
+                    metadata = {
+                        "pdf_id": result["pdf_id"],
+                        "source_url": result["pdf_path"],
+                        "page_number": result["page_number"],
+                    }
+                    await asyncio.to_thread(
+                        _write_text_file,
+                        metadata_json_path,
+                        json.dumps(metadata) + "\n",
+                        "a",
+                    )
 
                     # Update counters
                     nonlocal test_counter
@@ -1534,7 +1567,7 @@ async def main():
                     print(f"Added {len(result['tests'])} tests from {result['pdf_id']}, total: {test_counter}")
 
                 return result
-        except Exception as e:
+        except (APIError, OSError, PlaywrightError, TypeError, ValueError, pypdf.errors.PyPdfError) as e:
             print(f"Error processing {pdf_path}: {e}")
             return None
 

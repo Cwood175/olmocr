@@ -4,11 +4,11 @@ import glob
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import List
 from urllib.parse import urlparse
 
 import boto3
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PyPdfError
 from tqdm import tqdm
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
@@ -17,7 +17,7 @@ from olmocr.filter import PdfFilter
 pdf_filter = PdfFilter()
 
 
-def sample_pdf_pages(num_pages: int, first_n_pages: int, max_sample_pages: int) -> List[int]:
+def sample_pdf_pages(num_pages: int, first_n_pages: int, max_sample_pages: int) -> list[int]:
     """
     Returns a list of sampled page indices (1-based).
     - Always include the first_n_pages (or all pages if num_pages < first_n_pages).
@@ -102,7 +102,7 @@ def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_fil
             with open(single_png_path, "wb") as pngf:
                 pngf.write(base64.b64decode(b64png))
 
-        except Exception as e:
+        except (IndexError, OSError, ValueError, PyPdfError) as e:
             print(f"Error while processing {pdf_path}, page {page_num}: {e}")
 
     return True

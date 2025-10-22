@@ -8,11 +8,15 @@ and generates OpenAI batch API requests for processing PDFs.
 
 import argparse
 import json
+import sys
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional, Tuple
+from typing import Any
 
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 from tqdm import tqdm
 
 from olmocr.data.renderpdf import (
@@ -41,7 +45,7 @@ def validate_single_page_pdf(pdf_path: Path) -> bool:
     try:
         pdf = PdfReader(pdf_path)
         return len(pdf.pages) == 1
-    except Exception as e:
+    except (OSError, PdfReadError) as e:
         print(f"Error reading PDF {pdf_path}: {e}")
         return False
 
@@ -67,7 +71,7 @@ def build_custom_id(pdf_path: Path, base_dir: Path) -> str:
     return path_without_ext
 
 
-def process_single_pdf(pdf_path: Path, base_dir: Path) -> Optional[Tuple[Dict[str, Any], Path]]:
+def process_single_pdf(pdf_path: Path, base_dir: Path) -> tuple[dict[str, Any], Path] | None:
     """
     Process a single PDF and return the batch request if valid.
 
@@ -83,7 +87,7 @@ def process_single_pdf(pdf_path: Path, base_dir: Path) -> Optional[Tuple[Dict[st
         pdf = PdfReader(pdf_path)
         if len(pdf.pages) != 1:
             return None
-    except Exception as e:
+    except (OSError, PdfReadError) as e:
         print(f"Error reading PDF {pdf_path}: {e}")
         return None
 
@@ -123,7 +127,7 @@ def process_single_pdf(pdf_path: Path, base_dir: Path) -> Optional[Tuple[Dict[st
         }
 
         return (request, pdf_path)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         print(f"Error processing {pdf_path}: {e}")
         return None
 
@@ -150,11 +154,10 @@ def find_pdf_files(input_dir: Path) -> Generator[Path, None, None]:
         Path objects for each PDF file found
     """
 
-    for pdf_path in input_dir.rglob("*.pdf"):
-        yield pdf_path
+    yield from input_dir.rglob("*.pdf")
 
 
-def process_pdfs_to_batch_requests(input_dir: Path, output_dir: Path, max_pdfs: int = None, num_workers: int = 8) -> int:
+def process_pdfs_to_batch_requests(input_dir: Path, output_dir: Path, max_pdfs: int | None = None, num_workers: int = 8) -> int:
     """
     Process PDFs and create batch request files using parallel processing.
 
@@ -174,7 +177,6 @@ def process_pdfs_to_batch_requests(input_dir: Path, output_dir: Path, max_pdfs: 
     file_num = 0
     current_file_size = 0
     current_file_path = output_dir / f"batch_requests_{file_num:04d}.jsonl"
-    current_file = open(current_file_path, "w")
 
     pdfs_processed = 0
     pdfs_skipped = 0
@@ -191,17 +193,17 @@ def process_pdfs_to_batch_requests(input_dir: Path, output_dir: Path, max_pdfs: 
     print(f"Found {total_pdfs} PDF files to process")
     print(f"Using {num_workers} parallel workers")
 
-    # Process PDFs in parallel using ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        # Submit all PDF processing tasks
-        future_to_pdf = {executor.submit(process_single_pdf, pdf_path, input_dir): pdf_path for pdf_path in pdf_files}
+    with ExitStack() as output_files:
+        current_file = output_files.enter_context(open(current_file_path, "w"))
 
-        # Process results as they complete
-        with tqdm(total=total_pdfs, desc="Processing PDFs") as pbar:
-            for future in as_completed(future_to_pdf):
-                pdf_path = future_to_pdf[future]
+        # Process PDFs in parallel using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all PDF processing tasks
+            future_to_pdf = {executor.submit(process_single_pdf, pdf_path, input_dir): pdf_path for pdf_path in pdf_files}
 
-                try:
+            # Process results as they complete
+            with tqdm(total=total_pdfs, desc="Processing PDFs") as pbar:
+                for future in as_completed(future_to_pdf):
                     result = future.result()
 
                     if result is None:
@@ -217,7 +219,7 @@ def process_pdfs_to_batch_requests(input_dir: Path, output_dir: Path, max_pdfs: 
                             current_file.close()
                             file_num += 1
                             current_file_path = output_dir / f"batch_requests_{file_num:04d}.jsonl"
-                            current_file = open(current_file_path, "w")
+                            current_file = output_files.enter_context(open(current_file_path, "w"))
                             current_file_size = 0
                             print(f"\nStarting new batch file: {current_file_path.name}")
 
@@ -228,16 +230,9 @@ def process_pdfs_to_batch_requests(input_dir: Path, output_dir: Path, max_pdfs: 
 
                         pdfs_processed += 1
 
-                except Exception as e:
-                    print(f"\nError with {pdf_path}: {e}")
-                    pdfs_skipped += 1
+                    pbar.update(1)
 
-                pbar.update(1)
-
-    # Close the last file
-    current_file.close()
-
-    print(f"\nProcessing complete:")
+    print("\nProcessing complete:")
     print(f"  - PDFs processed: {pdfs_processed}")
     print(f"  - PDFs skipped: {pdfs_skipped}")
     print(f"  - Batch files created: {file_num + 1}")
@@ -282,4 +277,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

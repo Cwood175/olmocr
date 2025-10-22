@@ -6,9 +6,9 @@ import time
 from collections import Counter
 from difflib import SequenceMatcher
 
-import syntok.segmenter as segmenter
 from google import genai
 from google.genai import types
+from syntok import segmenter
 
 from olmocr.bench.tests import TextPresenceTest, save_tests
 from olmocr.data.renderpdf import render_pdf_to_base64png
@@ -216,7 +216,7 @@ def main():
         print(f"Results for base file: {bf}")
         tests = compare_votes_for_file(base_pdf_file, base_pdf_page, base_text, candidate_texts, max_diffs)
         all_tests.extend(tests)
-        print("")
+        print()
 
         # Output test candidates for review after each file, in case there are errors
         save_tests(all_tests, args.output)

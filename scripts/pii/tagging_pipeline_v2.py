@@ -7,6 +7,7 @@ this script issues a model prompt completion
 collects the yes/no answers, and writes corresponding Dolma attributes JSONL files under
 scratch/attributes/, mirroring the input structure.
 """
+
 import argparse
 import asyncio
 import atexit
@@ -17,7 +18,7 @@ import os
 import re
 import sys
 import time
-from typing import Optional
+from pathlib import Path
 from urllib.parse import urlparse
 
 import boto3
@@ -69,23 +70,23 @@ metrics = MetricsKeeper(window=60 * 5)
 class PIIClassification(BaseModel):
     primary_language: str = Field(..., description="Primary language as a two-letter code")
     document_type: str = Field(..., description="Basic summary of document type classification")
-    is_resume_cv: Optional[bool] = Field(None, description="True if the document is a page from a resume or cv")
+    is_resume_cv: bool | None = Field(None, description="True if the document is a page from a resume or cv")
 
-    is_academic_paper: Optional[bool] = None
-    is_textbook: Optional[bool] = None
-    is_news_article: Optional[bool] = None
-    is_test_or_quiz: Optional[bool] = None
-    is_homework_assignment: Optional[bool] = None
-    is_class_syllabus: Optional[bool] = None
-    is_meeting_minutes: Optional[bool] = None
-    is_legal_contract: Optional[bool] = None
-    is_form: Optional[bool] = None
-    is_correspondence_or_letter: Optional[bool] = None
-    is_public_order: Optional[bool] = None
-    is_court_notice: Optional[bool] = None
-    is_completion_certificate: Optional[bool] = None
+    is_academic_paper: bool | None = None
+    is_textbook: bool | None = None
+    is_news_article: bool | None = None
+    is_test_or_quiz: bool | None = None
+    is_homework_assignment: bool | None = None
+    is_class_syllabus: bool | None = None
+    is_meeting_minutes: bool | None = None
+    is_legal_contract: bool | None = None
+    is_form: bool | None = None
+    is_correspondence_or_letter: bool | None = None
+    is_public_order: bool | None = None
+    is_court_notice: bool | None = None
+    is_completion_certificate: bool | None = None
 
-    contains_pii: Optional[bool] = Field(None, description="True if document contains PII")
+    contains_pii: bool | None = Field(None, description="True if document contains PII")
 
 
 async def _process_single_page(page_text: str) -> PIIClassification:
@@ -118,7 +119,7 @@ async def _process_single_page(page_text: str) -> PIIClassification:
     # ---------- HTTP call ---------------------------------------------------
     try:
         status, body = await apost(url, json_data=query)
-    except Exception as e:
+    except (OSError, EOFError, UnicodeError, ValueError, TypeError) as e:
         logger.warning(f"Server network error: {e!s}")
         metrics.add_metrics(server_errors=1)
         return PIIClassification(primary_language="en", document_type="unknown", is_resume_cv=None, contains_pii=None)
@@ -219,17 +220,14 @@ async def apost(url, json_data):
             raise ConnectionError("Anything other than fixed content length responses are not implemented yet")
 
         return status_code, response_body
-    except Exception as e:
-        # Pass through errors
-        raise e
     finally:
         # But just make sure to close the socket on your way out
         if writer is not None:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except (OSError, RuntimeError) as exc:
+                logger.warning("Error closing HTTP connection: %s", exc)
 
 
 async def process_dolma_document(args, dolma_doc, sem):
@@ -296,13 +294,12 @@ async def process_file(args, worker_id: int, file_uri: str):
     if file_uri.startswith("s3://"):
         raw = await asyncio.to_thread(get_s3_bytes_with_backoff, dataset_s3, file_uri)
     else:
-        with open(file_uri, "rb") as f:
-            raw = f.read()
+        raw = await asyncio.to_thread(Path(file_uri).read_bytes)
 
     # Decompress if needed
     if file_uri.endswith(".gz"):
         file_bytes = gzip.decompress(raw)
-    elif file_uri.endswith(".ztd") or file_uri.endswith(".zst") or file_uri.endswith(".zstd"):
+    elif file_uri.endswith((".ztd", ".zst", ".zstd")):
         dctx = zstd.ZstdDecompressor()
         file_bytes = dctx.decompress(raw, max_output_size=1_000_000_000)
     else:
@@ -382,10 +379,9 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
                 key = os.path.join(prefix, out_rel)
                 workspace_s3.put_object(Bucket=bucket, Key=key, Body=payload)
             else:
-                out_path = os.path.join(args.dataset, out_rel)
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with open(out_path, "wb") as fh:
-                    fh.write(payload)
+                out_path = Path(args.dataset, out_rel)
+                await asyncio.to_thread(out_path.parent.mkdir, parents=True, exist_ok=True)
+                await asyncio.to_thread(out_path.write_bytes, payload)
 
             # 4. Mark queue item done
             await work_queue.mark_done(work_item)
@@ -397,12 +393,12 @@ async def worker(args, work_queue: WorkQueue, semaphore: asyncio.Semaphore, work
                 key = os.path.join(pfx, sentinel_rel)
                 workspace_s3.put_object(Bucket=bkt, Key=key, Body=b"")
             else:
-                sentinel_path = os.path.join(args.scratch, sentinel_rel)
-                os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
-                open(sentinel_path, "w").close()
+                sentinel_path = Path(args.scratch, sentinel_rel)
+                await asyncio.to_thread(sentinel_path.parent.mkdir, parents=True, exist_ok=True)
+                await asyncio.to_thread(sentinel_path.touch)
 
-        except Exception as exc:
-            logger.exception(f"Worker {worker_id} exception: {exc!s}")
+        except Exception:
+            logger.exception(f"Worker {worker_id} failed while processing {file_uri}")
         finally:
             semaphore.release()
 
@@ -469,8 +465,8 @@ async def server_task(model_name_or_path, args, semaphore):
             try:
                 line = line.decode("utf-8").rstrip()
                 await process_line(line)
-            except Exception as ex:
-                logger.warning(f"Got {ex} when reading log line from inference server, skipping")
+            except UnicodeDecodeError as ex:
+                logger.warning("Got %s when reading log line from inference server, skipping", ex)
 
     async def timeout_task():
         nonlocal last_running_req, last_queue_req, last_semaphore_release
@@ -482,7 +478,7 @@ async def server_task(model_name_or_path, args, semaphore):
                     last_semaphore_release = time.time()
                     logger.info("Semaphore released, allowing a worker to proceed.")
         except asyncio.CancelledError:
-            pass  # Clean up if the task is cancelled
+            return  # Clean up if the task is cancelled
 
     # Start tasks to read stdout, stderr, and handle timeout logic
     stdout_task = asyncio.create_task(read_stream(proc.stdout))
@@ -531,12 +527,12 @@ async def check_server_ready():
                     return
                 else:
                     logger.info(f"Attempt {attempt}: Unexpected status code {response.status_code}")
-        except Exception:
+        except httpx.RequestError:
             logger.warning(f"Attempt {attempt}: Please wait for model server to become ready...")
 
         await asyncio.sleep(delay_sec)
 
-    raise Exception("model server did not become ready after waiting.")
+    raise RuntimeError("model server did not become ready after waiting.")
 
 
 async def download_model(model_name_or_path: str):
@@ -605,9 +601,12 @@ def submit_beaker_job(args):
 
         b.secret.write(f"{owner}-WEKA_ACCESS_KEY_ID", os.environ.get("WEKA_ACCESS_KEY_ID", ""), args.beaker_workspace)
         b.secret.write(f"{owner}-WEKA_SECRET_ACCESS_KEY", os.environ.get("WEKA_SECRET_ACCESS_KEY", ""), args.beaker_workspace)
+        credentials_path = Path.home() / ".aws" / "credentials"
+        with credentials_path.open() as credentials_file:
+            aws_credentials = credentials_file.read()
         b.secret.write(
             f"{owner}-AWS_CREDENTIALS_FILE",
-            open(os.path.join(os.path.expanduser("~"), ".aws", "credentials")).read(),
+            aws_credentials,
             args.beaker_workspace,
         )
 
@@ -621,7 +620,7 @@ def submit_beaker_job(args):
         b.secret.get("OLMOCR_PREVIEW_HF_TOKEN", args.beaker_workspace)
         env_var_secrets.append(EnvVar(name="HF_TOKEN", secret="OLMOCR_PREVIEW_HF_TOKEN"))
     except SecretNotFound:
-        pass
+        logger.info("Optional OLMOCR_PREVIEW_HF_TOKEN secret is unavailable")
 
     try:
         b.secret.get("OE_DATA_GCS_SA_KEY", args.beaker_workspace)
@@ -701,16 +700,22 @@ async def main():
     if "BEAKER_JOB_ID" in os.environ:
         server_logger.addHandler(console_handler)
         if "AWS_CREDENTIALS_FILE" in os.environ:
-            cred_path = os.path.join(os.path.expanduser("~"), ".aws", "credentials")
-            os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("AWS_CREDENTIALS_FILE"))
+            cred_path = Path.home() / ".aws" / "credentials"
+            await asyncio.to_thread(cred_path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                cred_path.write_text,
+                os.environ["AWS_CREDENTIALS_FILE"],
+                encoding="utf-8",
+            )
         if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
-            cred_path = os.path.join(os.path.expanduser("~"), ".gcs", "credentials")
-            os.makedirs(os.path.dirname(cred_path), exist_ok=True)
-            with open(cred_path, "w") as f:
-                f.write(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_FILE"))
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
+            cred_path = Path.home() / ".gcs" / "credentials"
+            await asyncio.to_thread(cred_path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                cred_path.write_text,
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS_FILE"],
+                encoding="utf-8",
+            )
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(cred_path)
         workspace_s3 = boto3.client("s3")
         dataset_s3 = boto3.client("s3")
 

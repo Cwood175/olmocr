@@ -11,11 +11,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 from tqdm import tqdm
 
 from olmocr.data.renderpdf import render_pdf_to_base64png
@@ -25,7 +26,7 @@ from olmocr.data.renderpdf import render_pdf_to_base64png
 class CleanedDocument(BaseModel):
     cleaned_text: str = Field(description="The cleaned and corrected version of the OCR transcription")
     confidence_score: float = Field(description="Confidence score from 0 to 1 indicating how confident the model is in the cleaning", ge=0.0, le=1.0)
-    corrections_made: List[str] = Field(description="List of major corrections or improvements made to the text")
+    corrections_made: list[str] = Field(description="List of major corrections or improvements made to the text")
     is_page_all_blank: bool = Field(description="Document consists entirely of blank page, or only headers/footers that would otherwise be removed")
     primary_language: str = Field(default="en", description="Primary language of the document (ISO 639-1 code, e.g. 'en' for English, 'es' for Spanish)")
     is_rotation_valid: bool = Field(default=True, description="Whether the page orientation/rotation appears correct")
@@ -63,12 +64,12 @@ def check_single_page_pdf(pdf_path: Path) -> bool:
         with open(pdf_path, "rb") as pdf_file:
             pdf_reader = PdfReader(pdf_file)
             return len(pdf_reader.pages) == 1
-    except Exception as e:
+    except (OSError, PdfReadError) as e:
         print(f"Error checking PDF {pdf_path}: {e}")
         return False
 
 
-def find_document_pairs(input_dir: Path, verbose: bool = False) -> List[DocumentPair]:
+def find_document_pairs(input_dir: Path, verbose: bool = False) -> list[DocumentPair]:
     """Find all MD files with corresponding PDF files."""
     pairs = []
     skipped_no_pdf = 0
@@ -97,15 +98,15 @@ def render_single_page_pdf(pdf_path: Path) -> str:
         # Use render_pdf_to_base64png with target_longest_image_dim=2048
         base64_png = render_pdf_to_base64png(str(pdf_path), 1, target_longest_image_dim=2048)  # Always page 1 since we validated it's a single-page PDF
         return base64_png
-    except Exception as e:
-        raise RuntimeError(f"Could not render PDF {pdf_path}: {e}")
+    except (OSError, RuntimeError, ValueError) as e:
+        raise RuntimeError(f"Could not render PDF {pdf_path}: {e}") from e
 
 
 def clean_document_with_chatgpt(client: OpenAI, model: str, md_content: str, pdf_image: str, verbose: bool = False) -> CleanedDocument:
     """Use ChatGPT to clean the OCR transcription with PDF context."""
 
     # Prepare the messages
-    messages: List[Dict[str, Any]] = [
+    messages: list[dict[str, Any]] = [
         {
             "role": "system",
             "content": (
@@ -149,12 +150,12 @@ def clean_document_with_chatgpt(client: OpenAI, model: str, md_content: str, pdf
         if parsed_result is None:
             raise ValueError("ChatGPT returned no parsed result")
         return parsed_result
-    except Exception as e:
+    except (OpenAIError, ValueError) as e:
         print(f"Error calling ChatGPT: {e}")
         raise
 
 
-def process_document(doc_pair: DocumentPair, client: OpenAI, model: str, output_dir: Path, skip_existing: bool, verbose: bool) -> Tuple[bool, str]:
+def process_document(doc_pair: DocumentPair, client: OpenAI, model: str, output_dir: Path, skip_existing: bool, verbose: bool) -> tuple[bool, str]:
     """Process a single document pair."""
 
     # Check if output already exists
@@ -182,10 +183,10 @@ def process_document(doc_pair: DocumentPair, client: OpenAI, model: str, output_
         # Prepare front matter
         front_matter = f"""---
 primary_language: {cleaned_result.primary_language}
-is_rotation_valid: {str(cleaned_result.is_rotation_valid)}
+is_rotation_valid: {cleaned_result.is_rotation_valid!s}
 rotation_correction: {cleaned_result.rotation_correction}
-is_table: {str(cleaned_result.is_table)}
-is_diagram: {str(cleaned_result.is_diagram)}
+is_table: {cleaned_result.is_table!s}
+is_diagram: {cleaned_result.is_diagram!s}
 ---"""
 
         # Write cleaned text with front matter
@@ -229,7 +230,7 @@ is_diagram: {str(cleaned_result.is_diagram)}
 
         return True, f"Processed: {doc_pair.relative_path} (confidence: {cleaned_result.confidence_score:.2f})"
 
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, OpenAIError) as e:
         return False, f"Error processing {doc_pair.relative_path}: {e}"
 
 
@@ -303,7 +304,7 @@ def main():
                 pbar.set_postfix({"successful": successful, "skipped": skipped_multi_page, "failed": failed})
 
     # Print summary
-    print(f"\nProcessing complete:")
+    print("\nProcessing complete:")
     print(f"  Successful: {successful}")
     print(f"  Skipped (multi-page): {skipped_multi_page}")
     print(f"  Failed (other errors): {failed}")

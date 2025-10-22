@@ -1,5 +1,4 @@
 import bisect
-from typing import Type
 
 import regex as re
 from tqdm import tqdm
@@ -9,7 +8,7 @@ from .registry import BaseRegistry
 from .segmenters import BaseSegmenter, SegmenterRegistry
 
 
-class TextMetricRegistry(BaseRegistry[Type["BaseTextMetric"]]):
+class TextMetricRegistry(BaseRegistry[type["BaseTextMetric"]]):
     """A registry for text metrics."""
 
 
@@ -36,12 +35,17 @@ class BaseTextAlignMetric(BaseTextMetric):
         self,
         segmenter: str | BaseSegmenter,
         aligner: str | BaseAligner = "hirschberg",
-        aligner_kwargs: dict = {},
-        segmenter_kwargs: dict = {},
+        aligner_kwargs: dict | None = None,
+        segmenter_kwargs: dict | None = None,
         gap_token: str = "▓",
         *args,
         **kwargs,
     ):
+        if aligner_kwargs is None:
+            aligner_kwargs = {}
+        if segmenter_kwargs is None:
+            segmenter_kwargs = {}
+
         if isinstance(segmenter, str):
             self.segmenter = SegmenterRegistry.get(segmenter)(segmenter, **segmenter_kwargs)
         else:
@@ -189,8 +193,8 @@ class ParagraphEditSimilarity(DocumentEditSimilarity):
         self,
         segmenter: str | BaseSegmenter,
         aligner: str | BaseAligner = "hirschberg",
-        aligner_kwargs: dict = {},
-        segmenter_kwargs: dict = {},
+        aligner_kwargs: dict | None = None,
+        segmenter_kwargs: dict | None = None,
         gap_token: str = "▓",
         gap_threshold: int = 3,
         sent_window: int = 1,

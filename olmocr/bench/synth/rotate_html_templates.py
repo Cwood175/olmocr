@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Rotate HTML templates for data augmentation.
 
@@ -16,13 +15,13 @@ import argparse
 import os
 import random
 import shutil
-from typing import List, Optional
+import sys
 
 import pypdf
 from tqdm import tqdm
 
 
-def copy_directory_structure(src_dir: str, dst_dir: str, exclude_dirs: Optional[List[str]] = None):
+def copy_directory_structure(src_dir: str, dst_dir: str, exclude_dirs: list[str] | None = None):
     """
     Copy entire directory structure from source to destination.
 
@@ -92,7 +91,7 @@ def rotate_pdf(input_path: str, output_path: str, angle: int) -> bool:
             writer.write(output_file)
 
         return True
-    except Exception as e:
+    except (OSError, pypdf.errors.PdfReadError, ValueError) as e:
         print(f"Error rotating PDF {input_path}: {e}")
         return False
 
@@ -163,12 +162,12 @@ def update_frontmatter_rotation(markdown_path: str, rotation_angle: int) -> bool
 
         return True
 
-    except Exception as e:
+    except (OSError, UnicodeError, IndexError, ValueError) as e:
         print(f"Error updating FrontMatter in {markdown_path}: {e}")
         return False
 
 
-def find_corresponding_markdown(pdf_filename: str, claude_original_dir: str) -> Optional[str]:
+def find_corresponding_markdown(pdf_filename: str, claude_original_dir: str) -> str | None:
     """
     Find the corresponding markdown file in claude_original directory.
 
@@ -322,4 +321,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

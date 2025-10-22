@@ -23,7 +23,6 @@ import unittest
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import List, Optional
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -32,7 +31,7 @@ from playwright.sync_api import sync_playwright
 
 
 class EquationCache:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         if db_path is None:
             # Use the same cache directory as before
             cache_dir = pathlib.Path.home() / ".cache" / "olmocr" / "bench" / "equations"
@@ -60,7 +59,7 @@ class EquationCache:
             conn.commit()
             conn.close()
 
-    def load(self, eq_hash: str) -> Optional["RenderedEquation"]:
+    def load(self, eq_hash: str) -> "RenderedEquation | None":
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
@@ -145,8 +144,8 @@ class SpanInfo:
 @dataclass
 class RenderedEquation:
     mathml: str
-    spans: List[SpanInfo]
-    error: Optional[str] = None  # New field to store error messages if rendering fails
+    spans: list[SpanInfo]
+    error: str | None = None  # New field to store error messages if rendering fails
 
 
 def get_equation_hash(equation, bg_color="white", text_color="black", font_size=24):
@@ -178,12 +177,12 @@ def _cleanup_playwright(playwright, browser):
     print("Cleaning up", playwright)
     try:
         browser.close()
-    except Exception:
-        pass
+    except PlaywrightError as error:
+        print("Error closing browser:", error)
     try:
         playwright.stop()
-    except Exception:
-        pass
+    except PlaywrightError as error:
+        print("Error stopping Playwright:", error)
 
 
 class _BrowserOwner:
@@ -223,8 +222,8 @@ def _render_in_executor(equation, bg_color, text_color, font_size, use_cache, de
     finally:
         try:
             ctx.close()
-        except Exception:
-            pass
+        except PlaywrightError as error:
+            print("Error closing browser context:", error)
 
 
 def _do_render(context, equation, bg_color, text_color, font_size, debug_dom):
@@ -427,7 +426,7 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
     First, check if the normalized MathML of the hypothesis is contained within that of the reference.
     If not, perform a neighbor-based matching on the spans.
     """
-    from bs4 import BeautifulSoup
+    from bs4 import BeautifulSoup, FeatureNotFound, ParserRejectedMarkup
 
     def extract_inner(mathml: str) -> str:
         try:
@@ -438,7 +437,7 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
                 return "".join(inner_parts)
             else:
                 return str(soup)
-        except Exception as e:
+        except (FeatureNotFound, ParserRejectedMarkup) as e:
             print("Error parsing MathML with BeautifulSoup:", e)
             print(mathml)
             return mathml
@@ -546,16 +545,13 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
                         if R[ref_nb].text != expected_text:
                             valid = False
                             break
-            if valid:
-                if backtrack(i + 1):
-                    return True
+            if valid and backtrack(i + 1):
+                return True
             used[cand] = False
             del assignment[i]
         return False
 
     return backtrack(0)
-
-
 
 
 if __name__ == "__main__":

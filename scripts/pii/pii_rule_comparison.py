@@ -86,8 +86,6 @@ class Token:
 class ExpressionNode:
     """Base class for expression tree nodes"""
 
-    pass
-
 
 class RuleNode(ExpressionNode):
     """Leaf node representing a single rule"""
@@ -296,7 +294,7 @@ def load_jsonl_file(file_path, s3_client=None):
                     dctx = zstd.ZstdDecompressor(max_window_size=2147483648)  # Use a large window size
                     decompressor = dctx.stream_reader(io.BytesIO(raw_data))
                     decompressed = decompressor.read()
-                except Exception as inner_e:
+                except (OSError, zstd.ZstdError) as inner_e:
                     # If both methods fail, try with chunking
                     logger.warning(f"Stream decompression also failed, trying chunked reading: {inner_e}")
 
@@ -319,7 +317,7 @@ def load_jsonl_file(file_path, s3_client=None):
         lines = decompressed.decode("utf-8").strip().split("\n")
         return [json.loads(line) for line in lines if line.strip()]
 
-    except Exception as e:
+    except (OSError, EOFError, UnicodeDecodeError, json.JSONDecodeError, zstd.ZstdError) as e:
         logger.error(f"Error loading file {file_path}: {e}")
         return []
 
@@ -412,10 +410,9 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                     if "id" in doc:
                         # If the document already exists, use the one with attributes if possible
                         doc_id = doc["id"]
-                        if doc_id in docs_by_id:
-                            if "attributes" not in doc and "attributes" in docs_by_id[doc_id]:
-                                # Keep the existing document that has attributes
-                                continue
+                        if doc_id in docs_by_id and "attributes" not in doc and "attributes" in docs_by_id[doc_id]:
+                            # Keep the existing document that has attributes
+                            continue
 
                         # Initialize attributes if needed
                         if "attributes" not in doc:
@@ -428,7 +425,7 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
                         if "attributes" not in doc:
                             doc["attributes"] = {}
                         merged_docs.append(doc)
-            except Exception as e:
+            except (OSError, ValueError, TypeError, KeyError) as e:
                 logger.error(f"Error processing document file {doc_path}: {e}")
                 continue
 
@@ -490,10 +487,10 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
 
                             logger.info(f"Matched attributes for {docs_matched_in_file} documents from {basename} in {subdir}")
 
-                    except Exception as e:
-                        logger.error(f"Error processing attribute file {attr_path}: {e}")
+                    except (OSError, ValueError, TypeError, KeyError) as e:
+                        logger.error(f"Error processing attribute file {doc_path}: {e}")
                         continue
-            except Exception as e:
+            except (OSError, ValueError, TypeError, KeyError) as e:
                 logger.error(f"Error processing attribute subdirectory {subdir}: {e}")
                 continue
 
@@ -505,7 +502,7 @@ def load_documents_and_attributes(docs_folder, attr_folder, s3_client=None, recu
         logger.info(f"Total attribute subdirectories processed: {len(attr_subdirs)}")
 
         return merged_docs
-    except Exception as e:
+    except (OSError, ValueError, TypeError, KeyError) as e:
         logger.error(f"Error in load_documents_and_attributes: {e}")
         raise
 
@@ -543,7 +540,7 @@ def calculate_attribute_aggregate(doc, attribute_name, operation_type):
         The aggregated value, or None if calculation is not possible
     """
     # Check if document has attributes
-    if "attributes" not in doc or not doc["attributes"]:
+    if not doc.get("attributes"):
         logger.debug(f"Document {doc.get('id', 'unknown')} has no attributes")
         return None
 
@@ -597,7 +594,7 @@ def apply_simple_rule(doc, attribute_name, rule_type):
         True if the document matches the rule, False otherwise
     """
     # Check if document has attributes
-    if "attributes" not in doc or not doc["attributes"]:
+    if not doc.get("attributes"):
         logger.debug(f"Document {doc.get('id', 'unknown')} has no attributes")
         return False
 
@@ -615,32 +612,13 @@ def apply_simple_rule(doc, attribute_name, rule_type):
     # Handle numeric comparison rules (e.g., 'avg>0.3')
     if any(op in rule_type for op in [">", "<", ">=", "<=", "=="]):
         # Parse the rule type into operation and comparison
-        operation_parts = rule_type.split(">")
-        if len(operation_parts) == 2:
-            operation_type, threshold = operation_parts
-            comparison_op = ">"
-        else:
-            operation_parts = rule_type.split("<")
+        for comparison_op in (">=", "<=", "==", ">", "<"):
+            operation_parts = rule_type.split(comparison_op, 1)
             if len(operation_parts) == 2:
                 operation_type, threshold = operation_parts
-                comparison_op = "<"
-            else:
-                operation_parts = rule_type.split(">=")
-                if len(operation_parts) == 2:
-                    operation_type, threshold = operation_parts
-                    comparison_op = ">="
-                else:
-                    operation_parts = rule_type.split("<=")
-                    if len(operation_parts) == 2:
-                        operation_type, threshold = operation_parts
-                        comparison_op = "<="
-                    else:
-                        operation_parts = rule_type.split("==")
-                        if len(operation_parts) == 2:
-                            operation_type, threshold = operation_parts
-                            comparison_op = "=="
-                        else:
-                            raise ValueError(f"Invalid rule type: {rule_type}")
+                break
+        else:
+            raise ValueError(f"Invalid rule type: {rule_type}")
 
         # Convert threshold to float
         try:
@@ -1039,8 +1017,8 @@ def parse_rule(rule_string):
             tokens = tokenize_expression(rule_string)
             parser = Parser(tokens)
             return parser.parse()
-        except Exception as e:
-            raise ValueError(f"Error parsing expression '{rule_string}': {e}")
+        except (SyntaxError, ValueError, TypeError, IndexError) as e:
+            raise ValueError(f"Error parsing expression '{rule_string}': {e}") from e
 
 
 def is_complex_expression(rule):
@@ -1079,7 +1057,7 @@ def collect_rule_stats(expression, doc):
     if not is_complex_expression(expression):
         attribute_name, rule_type = expression
         # Only process if document has this attribute
-        if "attributes" in doc and doc["attributes"] and attribute_name in doc["attributes"] and doc["attributes"][attribute_name]:
+        if doc.get("attributes", {}).get(attribute_name):
             # The rule name will be the key for the statistics
             rule_name = f"{attribute_name}:{rule_type}"
 
@@ -1102,7 +1080,7 @@ def collect_rule_stats(expression, doc):
     if isinstance(expression, RuleNode):
         # Base case: leaf node is a simple rule
         attribute_name, rule_type = expression.attribute_name, expression.rule_type
-        if "attributes" in doc and doc["attributes"] and attribute_name in doc["attributes"] and doc["attributes"][attribute_name]:
+        if doc.get("attributes", {}).get(attribute_name):
             # The rule name will be the key for the statistics
             rule_name = f"{attribute_name}:{rule_type}"
 
@@ -1185,7 +1163,7 @@ def compare_documents(ref_docs, hyp_docs, ref_rule, hyp_rule):
     hyp_id_to_doc = {doc["id"]: doc for doc in hyp_docs if "id" in doc}
 
     # Get common document IDs
-    common_ids = set(ref_id_to_doc.keys()).intersection(set(hyp_id_to_doc.keys()))
+    common_ids = ref_id_to_doc.keys() & hyp_id_to_doc.keys()
 
     # Apply rules to each document
     ref_matches = set()
@@ -1306,10 +1284,11 @@ def collect_numeric_attributes(documents):
     numeric_attributes = defaultdict(list)
 
     for doc in documents:
-        if "attributes" not in doc or not doc["attributes"]:
+        attributes = doc.get("attributes")
+        if not attributes:
             continue
 
-        for attr_name, attr_values in doc["attributes"].items():
+        for attr_name, attr_values in attributes.items():
             if not attr_values:
                 continue
 
@@ -1320,10 +1299,10 @@ def collect_numeric_attributes(documents):
                     try:
                         # Convert to float if it's a numeric value
                         value = float(span[2])
-                        numeric_attributes[attr_name].append(value)
                     except (ValueError, TypeError):
                         # Not a numeric value, skip
-                        pass
+                        continue
+                    numeric_attributes[attr_name].append(value)
 
     # Filter out attributes with no or too few numeric values
     return {k: v for k, v in numeric_attributes.items() if len(v) > 5}
@@ -1402,7 +1381,7 @@ def generate_cdf_plot(values, attribute_name):
 
         return img_base64
 
-    except Exception as e:
+    except (OSError, ValueError, TypeError, FloatingPointError) as e:
         logger.error(f"Error generating CDF plot for {attribute_name}: {e}")
         return None
 
@@ -1892,9 +1871,9 @@ def main():
     summary = f"""Reference Rule: {args.ref_rule}
 Hypothesis Rule: {args.hyp_rule}
 
-Total Documents: {overall_stats['total_docs']}
-Reference Matches: {overall_stats['ref_matches']}
-Hypothesis Matches: {overall_stats['hyp_matches']}
+Total Documents: {overall_stats["total_docs"]}
+Reference Matches: {overall_stats["ref_matches"]}
+Hypothesis Matches: {overall_stats["hyp_matches"]}
 
 True Positives: {tp}
 True Negatives: {tn}
@@ -2105,8 +2084,9 @@ IoU: {iou:.4f}
     logger.info("\n--- AVAILABLE ATTRIBUTES ---")
     all_attributes = set()
     for doc in all_docs:
-        if "attributes" in doc and doc["attributes"]:
-            all_attributes.update(doc["attributes"].keys())
+        attributes = doc.get("attributes")
+        if attributes:
+            all_attributes.update(attributes.keys())
 
     if all_attributes:
         logger.info(f"Found {len(all_attributes)} unique attributes:")

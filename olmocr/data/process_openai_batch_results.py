@@ -12,12 +12,12 @@ import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from tqdm import tqdm
 
 
-def parse_batch_response(response_line: str) -> Optional[Dict[str, Any]]:
+def parse_batch_response(response_line: str) -> dict[str, Any] | None:
     """
     Parse a single line from the batch response file.
 
@@ -45,12 +45,12 @@ def parse_batch_response(response_line: str) -> Optional[Dict[str, Any]]:
             print(f"Error in response for {custom_id}: {data.get('error', 'Unknown error')}")
             return None
 
-    except Exception as e:
+    except (AttributeError, IndexError, KeyError, TypeError, json.JSONDecodeError) as e:
         print(f"Error parsing response line: {e}")
         return None
 
 
-def format_frontmatter_markdown(response_data: Dict[str, Any]) -> str:
+def format_frontmatter_markdown(response_data: dict[str, Any]) -> str:
     """
     Format the response data as FrontMatter markdown.
 
@@ -71,10 +71,10 @@ def format_frontmatter_markdown(response_data: Dict[str, Any]) -> str:
     # Format as FrontMatter
     markdown = "---\n"
     markdown += f"primary_language: {primary_language if primary_language else 'null'}\n"
-    markdown += f"is_rotation_valid: {str(is_rotation_valid)}\n"
+    markdown += f"is_rotation_valid: {is_rotation_valid!s}\n"
     markdown += f"rotation_correction: {rotation_correction}\n"
-    markdown += f"is_table: {str(is_table)}\n"
-    markdown += f"is_diagram: {str(is_diagram)}\n"
+    markdown += f"is_table: {is_table!s}\n"
+    markdown += f"is_diagram: {is_diagram!s}\n"
     markdown += "---\n"
 
     # Add the natural text content
@@ -84,7 +84,7 @@ def format_frontmatter_markdown(response_data: Dict[str, Any]) -> str:
     return markdown.strip()
 
 
-def process_single_result(custom_id: str, response_content: Dict[str, Any], original_pdf_dir: Path, output_dir: Path) -> bool:
+def process_single_result(custom_id: str, response_content: dict[str, Any], original_pdf_dir: Path, output_dir: Path) -> bool:
     """
     Process a single batch result: copy PDF and create MD file.
 
@@ -133,7 +133,7 @@ def process_single_result(custom_id: str, response_content: Dict[str, Any], orig
 
         return True
 
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"Error processing {custom_id}: {e}")
         return False
 
@@ -201,7 +201,7 @@ def process_batch_results(batch_results_dir: Path, original_pdf_dir: Path, outpu
                         successful += 1
                     else:
                         failed += 1
-                except Exception as e:
+                except (OSError, TypeError, ValueError) as e:
                     print(f"\nError with {custom_id}: {e}")
                     failed += 1
 
@@ -251,4 +251,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())

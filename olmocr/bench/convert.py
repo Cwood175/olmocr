@@ -55,6 +55,11 @@ async def run_sync_in_executor(func, executor, *args, **kwargs):
     return await loop.run_in_executor(executor, partial(func, *args, **kwargs))
 
 
+def _write_output_file(output_path, content):
+    with open(output_path, "w") as out_f:
+        out_f.write(content)
+
+
 async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async, executor=None, use_executor=True):
     """Process a single PDF and save the result to output_path"""
     try:
@@ -71,20 +76,17 @@ async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async,
         if markdown is None:
             print(f"Warning, did not get output for {os.path.basename(output_path)}")
             # Write blank to this file, so that it's marked as an error and not just skipped in evals
-            with open(output_path, "w") as out_f:
-                out_f.write("")
+            await run_sync_in_executor(_write_output_file, executor, output_path, "")
             return False
 
         # Write the markdown to the output file
-        with open(output_path, "w") as out_f:
-            out_f.write(markdown)
+        await run_sync_in_executor(_write_output_file, executor, output_path, markdown)
 
         return True
-    except Exception as ex:
-        print(f"Exception {str(ex)} occurred while processing {os.path.basename(output_path)}")
+    except (OSError, RuntimeError, TypeError, ValueError) as ex:
+        print(f"Exception {ex!s} occurred while processing {os.path.basename(output_path)}")
         # Write blank to this file, so that it's marked as an error and not just skipped in evals
-        with open(output_path, "w") as out_f:
-            out_f.write("")
+        await run_sync_in_executor(_write_output_file, executor, output_path, "")
         return False
 
 
@@ -99,14 +101,14 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
     executor = ThreadPoolExecutor(max_workers=max_parallel) if use_executor else None
 
     try:
-        for candidate in config.keys():
-            print(f"Starting conversion using {candidate} with kwargs: {config[candidate]['kwargs']}")
-            folder_name = config[candidate]["folder_name"]
+        for candidate, candidate_config in config.items():
+            print(f"Starting conversion using {candidate} with kwargs: {candidate_config['kwargs']}")
+            folder_name = candidate_config["folder_name"]
             candidate_output_dir = os.path.join(data_directory, folder_name)
             os.makedirs(candidate_output_dir, exist_ok=True)
 
-            method = config[candidate]["method"]
-            kwargs = config[candidate]["kwargs"]
+            method = candidate_config["method"]
+            kwargs = candidate_config["kwargs"]
             is_async = asyncio.iscoroutinefunction(method)
 
             # Use recursive glob to support nested PDFs
@@ -136,18 +138,16 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                             base64_png = render_pdf_to_base64png(pdf_path, page_num, target_longest_image_dim=2048)
 
                             # Decode base64 and save to temporary file
-                            temp_img = tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False)
-                            temp_img.write(base64.b64decode(base64_png))
-                            temp_img.close()
-                            temp_image_files.append(temp_img.name)
+                            with tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False) as temp_img:
+                                temp_image_files.append(temp_img.name)
+                                temp_img.write(base64.b64decode(base64_png))
 
                         # Convert all images to a single PDF using our enhanced function
                         pdf_bytes = convert_image_to_pdf_bytes(temp_image_files)
 
                         # Write the PDF bytes to a temporary file
-                        temp_pdf = tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False)
-                        temp_pdf.write(pdf_bytes)
-                        temp_pdf.close()
+                        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as temp_pdf:
+                            temp_pdf.write(pdf_bytes)
 
                         # Update pdf_path to the new file
                         pdf_path = temp_pdf.name
@@ -157,7 +157,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                         for temp_file in temp_image_files:
                             try:
                                 os.remove(temp_file)
-                            except Exception as e:
+                            except OSError as e:
                                 print(f"Warning: Failed to remove temporary file {temp_file}: {e}")
 
                 for repeat in range(1, repeats + 1):
@@ -181,7 +181,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
             # When max_parallel is 0, set semaphore to 1 to run sequentially
             semaphore = asyncio.Semaphore(max_parallel if max_parallel else 1)
 
-            async def process_with_semaphore(task):
+            async def process_with_semaphore(task, semaphore=semaphore):
                 async with semaphore:
                     return await task
 
@@ -200,7 +200,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                                 result = await task
                                 if result:
                                     completed += 1
-                            except Exception as e:
+                            except (OSError, RuntimeError, TypeError, ValueError) as e:
                                 print(f"Task failed: {e}")
                             finally:
                                 pbar.update(1)
@@ -211,7 +211,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                                 result = await task
                                 if result:
                                     completed += 1
-                            except Exception as e:
+                            except (OSError, RuntimeError, TypeError, ValueError) as e:
                                 print(f"Task failed: {e}")
                             finally:
                                 pbar.update(1)
@@ -272,7 +272,7 @@ if __name__ == "__main__":
     for method_arg in args.methods:
         method_name, extra_kwargs, folder_name = parse_method_arg(method_arg)
         if method_name not in available_methods:
-            parser.error(f"Unknown method: {method_name}. " f"Available methods: {', '.join(available_methods.keys())}")
+            parser.error(f"Unknown method: {method_name}. Available methods: {', '.join(available_methods.keys())}")
         module_path, function_name = available_methods[method_name]
         # Dynamically import the module and get the function.
         module = importlib.import_module(module_path)

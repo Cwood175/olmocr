@@ -12,7 +12,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import torch
 import torch.distributed as dist
@@ -69,7 +69,7 @@ class OlmOCRBenchDataset(Dataset):
         self,
         bench_data_folder: str,
         processor,
-        max_samples: Optional[int] = None,
+        max_samples: int | None = None,
         target_longest_image_dim: int = 1024,
     ):
         self.bench_data_folder = bench_data_folder
@@ -94,7 +94,7 @@ class OlmOCRBenchDataset(Dataset):
 
         logger.info(f"Created dataset with {len(self.samples)} unique PDF samples")
 
-    def _load_claude_original(self, pdf_name: str, page: int) -> Optional[str]:
+    def _load_claude_original(self, pdf_name: str, page: int) -> str | None:
         """Load the claude_original markdown file for a given PDF and page."""
         if not os.path.exists(self.claude_original_folder):
             return None
@@ -135,20 +135,20 @@ class OlmOCRBenchDataset(Dataset):
                     _page_response = parser._parse_front_matter(front_matter, text)
                     # Parsing succeeded, return the original content
                     return content
-                except Exception as parse_error:
+                except (KeyError, TypeError, ValueError) as parse_error:
                     logger.error(f"CRITICAL: Failed to parse frontmatter from claude_original file {claude_file_path}")
-                    logger.error(f"Parse error: {type(parse_error).__name__}: {str(parse_error)}")
+                    logger.error(f"Parse error: {type(parse_error).__name__}: {parse_error!s}")
                     logger.error("Aborting run due to invalid claude_original file format")
                     sys.exit(1)
 
-            except Exception as e:
+            except (OSError, UnicodeError) as e:
                 logger.warning(f"Failed to read claude_original file {claude_file_path}: {e}")
         else:
             logger.debug(f"Claude original file not found: {claude_file_path}")
 
         return None
 
-    def _load_unique_pdfs_from_jsonl(self) -> List[Dict[str, Any]]:
+    def _load_unique_pdfs_from_jsonl(self) -> list[dict[str, Any]]:
         """Load unique PDFs from JSONL files in the bench_data folder, tracking all test cases per PDF."""
         jsonl_files = sorted(glob.glob(os.path.join(self.bench_data_folder, "*.jsonl")))
 
@@ -158,7 +158,7 @@ class OlmOCRBenchDataset(Dataset):
         logger.info(f"Found {len(jsonl_files)} JSONL files")
 
         # Track unique PDFs and their test cases
-        pdf_data: Dict[str, Dict[str, Any]] = {}
+        pdf_data: dict[str, dict[str, Any]] = {}
 
         for jsonl_file in jsonl_files:
             logger.info(f"Processing {os.path.basename(jsonl_file)}")
@@ -196,7 +196,7 @@ class OlmOCRBenchDataset(Dataset):
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse line in {jsonl_file}: {e}")
                         continue
-                    except Exception as e:
+                    except (AttributeError, KeyError, TypeError, ValueError) as e:
                         logger.warning(f"Error processing entry in {jsonl_file}: {e}")
                         continue
 
@@ -249,7 +249,7 @@ class OlmOCRBenchDataset(Dataset):
                 "claude_original": sample.get("claude_original"),  # Include claude_original if available
             }
 
-        except Exception as e:
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.error(f"Failed to process sample {idx}: {e}")
             # Return None if processing fails
             return None
@@ -286,14 +286,14 @@ def load_specific_tests_cached(jsonl_file: str, test_ids_tuple: tuple):
                     # Early exit if we've found all tests
                     if len(relevant_tests) == len(test_ids):
                         break
-            except (json.JSONDecodeError, Exception) as e:
+            except (KeyError, TypeError, ValueError) as e:
                 logger.warning(f"Error parsing test line: {e}")
                 continue
 
     return relevant_tests
 
 
-def evaluate_single_completion(args: Tuple[int, Any, str, str, List[str]]) -> Tuple[int, Optional[float]]:
+def evaluate_single_completion(args: tuple[int, Any, str, str, list[str]]) -> tuple[int, float | None]:
     """
     Helper function to evaluate a single completion against its tests.
 
@@ -307,7 +307,7 @@ def evaluate_single_completion(args: Tuple[int, Any, str, str, List[str]]) -> Tu
 
     logger.info(f"Completion {i}: PDF: {comp_pdf_path}, JSONL: {comp_jsonl_file}, Test IDs: {comp_test_ids}")
 
-    if completion is None or not (isinstance(completion, str) or isinstance(completion, list)):
+    if completion is None or not isinstance(completion, str | list):
         logger.warning(f"Invalid completion at index {i}: {type(completion)}")
         logger.warning(f"completion: {completion}")
         return i, None
@@ -341,7 +341,7 @@ def evaluate_single_completion(args: Tuple[int, Any, str, str, List[str]]) -> Tu
                     passed += 1
                 else:
                     logger.debug(f"Test {test.id} failed: {failure_reason}")
-            except Exception as e:
+            except (AttributeError, KeyError, TypeError, ValueError) as e:
                 logger.warning(f"Error running test {test.id}: {e}")
                 # Count errored tests as failures
                 continue
@@ -352,12 +352,12 @@ def evaluate_single_completion(args: Tuple[int, Any, str, str, List[str]]) -> Tu
         logger.info(f"Completion {i}: {passed}/{total} tests passed, reward={reward:.3f}")
         return i, reward
 
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         logger.error(f"Error processing completion {i}: {e}")
         return i, None
 
 
-def bench_edit_distance_reward(prompts, completions: list[str] | list[list[dict]], claude_original: list[Optional[str]], **kwargs):
+def bench_edit_distance_reward(prompts, completions: list[str] | list[list[dict]], claude_original: list[str | None], **kwargs):
     """
     Reward function based on edit distance similarity to claude_original files.
 
@@ -387,7 +387,7 @@ def bench_edit_distance_reward(prompts, completions: list[str] | list[list[dict]
             comp_text = ""
 
         # Get the corresponding claude_original reference
-        reference = claude_original[i] if i < len(claude_original) else None
+        reference = claude_original[i] if claude_original is not None and i < len(claude_original) else None
 
         if reference is None:
             logger.warning(f"No claude_original reference for completion {i}")
@@ -476,7 +476,7 @@ def medoid_reward(prompts, completions: list[str] | list[list[dict]], **kwargs):
     return rewards
 
 
-def reward_front_matter(prompts, completions: list[str] | list[list[dict]], claude_original: list[Optional[str]] = None, **kwargs):
+def reward_front_matter(prompts, completions: list[str] | list[list[dict]], claude_original: list[str | None] | None = None, **kwargs):
     """
     Reward function that checks if completions can be successfully parsed by FrontMatterParser
     and compares fields to claude_original values.
@@ -551,16 +551,16 @@ def reward_front_matter(prompts, completions: list[str] | list[list[dict]], clau
 
                     logger.debug(f"Completion {i}: Matched {fields_matched}/{len(fields_to_compare)} fields")
 
-                except Exception as e:
+                except (KeyError, TypeError, ValueError) as e:
                     logger.warning(f"Failed to parse claude_original for comparison at index {i}: {e}")
                     # Keep the base 0.5 reward for successful parsing
             else:
                 logger.debug(f"Completion {i}: No claude_original available for comparison")
 
-        except Exception as e:
+        except (KeyError, TypeError, ValueError) as e:
             # Any parsing error results in 0 reward
             reward = 0.0
-            logger.debug(f"Completion {i}: Failed to parse frontmatter - {type(e).__name__}: {str(e)}")
+            logger.debug(f"Completion {i}: Failed to parse frontmatter - {type(e).__name__}: {e!s}")
 
         rewards.append(reward)
 
@@ -570,13 +570,13 @@ def reward_front_matter(prompts, completions: list[str] | list[list[dict]], clau
     perfect_rewards = sum(1 for r in rewards if r == 1.0)
     avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
 
-    logger.info(f"Front matter rewards summary: {zero_rewards} failed, {partial_rewards} partial, " f"{perfect_rewards} perfect. Average: {avg_reward:.3f}")
+    logger.info(f"Front matter rewards summary: {zero_rewards} failed, {partial_rewards} partial, {perfect_rewards} perfect. Average: {avg_reward:.3f}")
 
     return rewards
 
 
-def reward_element_count(prompts, completions: list[str] | list[list[dict]], claude_original: list[Optional[str]] = None, **kwargs):
-    """
+def reward_element_count(prompts, completions: list[str] | list[list[dict]], claude_original: list[str | None] | None = None, **kwargs):
+    r"""
     Reward function based on matching element counts between completion and claude_original.
 
     Counts HTML tables (<table>...</table>) and LaTeX math equations ($$...$$, \(...\), \[...\])
@@ -653,14 +653,13 @@ def reward_element_count(prompts, completions: list[str] | list[list[dict]], cla
         reward = matches * 0.5
 
         logger.debug(
-            f"Completion {i}: tables (comp={comp_table_count}, ref={ref_table_count}), "
-            f"math (comp={comp_math_count}, ref={ref_math_count}), reward={reward:.1f}"
+            f"Completion {i}: tables (comp={comp_table_count}, ref={ref_table_count}), math (comp={comp_math_count}, ref={ref_math_count}), reward={reward:.1f}"
         )
 
         rewards.append(reward)
 
     logger.info(
-        f"Element count rewards - avg: {sum(rewards)/len(rewards) if rewards else 0:.3f}, "
+        f"Element count rewards - avg: {sum(rewards) / len(rewards) if rewards else 0:.3f}, "
         f"range: [{min(rewards) if rewards else 0:.3f}, {max(rewards) if rewards else 0:.3f}]"
     )
 
@@ -986,8 +985,8 @@ def main():
         return
 
     # Log summary of reward configuration
-    logger.info(f"\n" + "=" * 50)
-    logger.info(f"Reward Configuration:")
+    logger.info("\n" + "=" * 50)
+    logger.info("Reward Configuration:")
     logger.info(f"Using {len(reward_funcs)} reward function(s):")
     for name, weight in zip(reward_names, reward_weights):
         logger.info(f"  - {name}: weight={weight}")
@@ -1044,23 +1043,18 @@ def main():
 
     # Start training
     logger.info("Starting GRPO training")
-    try:
-        trainer.train()
+    trainer.train()
 
-        # Save final model
-        logger.info(f"Saving final model to {args.output_dir}/step-final")
-        trainer.save_model()
-        processor.save_pretrained(os.path.join(args.output_dir, "step-final"))
+    # Save final model
+    logger.info(f"Saving final model to {args.output_dir}/step-final")
+    trainer.save_model()
+    processor.save_pretrained(os.path.join(args.output_dir, "step-final"))
 
-        logger.info("Training completed successfully!")
+    logger.info("Training completed successfully!")
 
-        # Close wandb only on main process
-        if is_main_process():
-            wandb.finish()
-
-    except Exception as e:
-        logger.error(f"Training failed: {e}")
-        raise
+    # Close wandb only on main process
+    if is_main_process():
+        wandb.finish()
 
 
 if __name__ == "__main__":

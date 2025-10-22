@@ -2,10 +2,12 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from typing import List
+from concurrent.futures import CancelledError
+from concurrent.futures.process import BrokenProcessPool
 
 from lingua import Language, LanguageDetectorBuilder
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -28,9 +30,7 @@ class PdfFilter:
 
     def _is_form(self, pdf_reader) -> bool:
         # Check if the PDF is a form
-        if pdf_reader.get_form_text_fields():
-            return True
-        return False  # Not a form
+        return bool(pdf_reader.get_form_text_fields())
 
     def _is_download_spam(self, base_text: str) -> bool:
         seo_words = {
@@ -71,7 +71,7 @@ class PdfFilter:
             if self.apply_form_check and self._is_form(pdf_reader):
                 logger.info(f"Filtering out {local_pdf_path} because it's a form")
                 return True  # Filter out
-        except Exception as e:
+        except (OSError, PdfReadError) as e:
             logger.warning(f"Error reading PDF {local_pdf_path}: {e}")
             return True  # Filter out the PDF if an exception occurs
 
@@ -79,8 +79,8 @@ class PdfFilter:
         pdftotext_result = subprocess.run(
             ["pdftotext", "-f", "1", "-l", "5", local_pdf_path, "-"],
             timeout=60,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            check=False,
+            capture_output=True,
         )
         if pdftotext_result.returncode != 0:
             logger.warning(f"pdftotext returned {pdftotext_result.returncode} on {local_pdf_path}")
@@ -143,7 +143,7 @@ if __name__ == "__main__":
 
     # Load the list of S3 paths with a progress bar
     with open("/home/ubuntu/s2pdf_paths_1M.txt", "r") as f:
-        s3_work_paths: List[str] = list(filter(None, (line.strip() for line in tqdm(f, desc="Loading paths"))))
+        s3_work_paths: list[str] = list(filter(None, (line.strip() for line in tqdm(f, desc="Loading paths"))))
 
     # Initialize the PDF filter
     filter = PdfFilter(
@@ -161,13 +161,16 @@ if __name__ == "__main__":
     pdf_iter = iter(s3_work_paths)  # Iterator for PDFs
 
     # Process the PDFs with limited concurrent futures
-    with open(keep_path, "w") as fkeep, open(remove_path, "w") as fremove:
-        with ProcessPoolExecutor(max_workers=max_pending) as executor:
-            pending_futures = {}
+    with (
+        open(keep_path, "w") as fkeep,
+        open(remove_path, "w") as fremove,
+        ProcessPoolExecutor(max_workers=max_pending) as executor,
+    ):
+        pending_futures = {}
 
-            with tqdm(total=total_pdfs, desc="Processing PDFs") as pbar:
-                # Submit initial batch of futures
-                for _ in range(min(max_pending, total_pdfs)):
+        with tqdm(total=total_pdfs, desc="Processing PDFs") as pbar:
+            # Submit initial batch of futures
+            for _ in range(min(max_pending, total_pdfs)):
                     s3_path = next(pdf_iter)
                     future = executor.submit(process_pdf, s3_path)
                     pending_futures[future] = s3_path
@@ -188,7 +191,7 @@ if __name__ == "__main__":
                                 fkeep.write(s3_path + "\n")
                             elif result == "remove":
                                 fremove.write(s3_path + "\n")
-                        except Exception as e:
+                        except (CancelledError, BrokenProcessPool) as e:
                             print(f"Error processing {s3_path}: {e}")
 
                         # Update the progress bar

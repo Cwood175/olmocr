@@ -93,23 +93,19 @@ def find_and_handle_contaminated_files(metadata_jsonl_path, contaminated_pdf_ids
         # Find HTML files
         html_dir = output_dir / "html" / name
         if html_dir.exists():
-            for html_file in html_dir.glob(f"{pdf_id}_page*.html"):
-                files_to_delete.append(html_file)
+            files_to_delete.extend(html_dir.glob(f"{pdf_id}_page*.html"))
 
         # Find PDF files (both original and rendered)
         pdfs_dir = output_dir / "pdfs" / name
         if pdfs_dir.exists():
-            for pdf_file in pdfs_dir.glob(f"{pdf_id}_page*.pdf"):
-                files_to_delete.append(pdf_file)
+            files_to_delete.extend(pdfs_dir.glob(f"{pdf_id}_page*.pdf"))
 
         # Find markdown files in training directory
         training_dir = output_dir / "training" / name
         if training_dir.exists():
-            for md_file in training_dir.glob(f"{pdf_id}_page*.md"):
-                files_to_delete.append(md_file)
+            files_to_delete.extend(training_dir.glob(f"{pdf_id}_page*.md"))
             # Also check for PDF symlinks
-            for pdf_link in training_dir.glob(f"{pdf_id}_page*.pdf"):
-                files_to_delete.append(pdf_link)
+            files_to_delete.extend(training_dir.glob(f"{pdf_id}_page*.pdf"))
 
         # Find files in bench_data directory
         bench_data_dir = output_dir / "bench_data"
@@ -117,14 +113,12 @@ def find_and_handle_contaminated_files(metadata_jsonl_path, contaminated_pdf_ids
         # Check synthetic PDFs subdirectory
         bench_synthetic_dir = bench_data_dir / "pdfs" / name
         if bench_synthetic_dir.exists():
-            for pdf_file in bench_synthetic_dir.glob(f"{pdf_id}_page*.pdf"):
-                files_to_delete.append(pdf_file)
+            files_to_delete.extend(bench_synthetic_dir.glob(f"{pdf_id}_page*.pdf"))
 
         # Check claude_original subdirectory
         claude_original_dir = bench_data_dir / "claude_original" / name
         if claude_original_dir.exists():
-            for md_file in claude_original_dir.glob(f"{pdf_id}_page*.md"):
-                files_to_delete.append(md_file)
+            files_to_delete.extend(claude_original_dir.glob(f"{pdf_id}_page*.md"))
 
     # Remove tests from bench_data JSONL file
     jsonl_file = bench_data_dir / f"{name}.jsonl"
@@ -174,13 +168,13 @@ def find_and_handle_contaminated_files(metadata_jsonl_path, contaminated_pdf_ids
                 try:
                     if file_path.is_symlink() or file_path.exists():
                         file_path.unlink()
-                except Exception as e:
+                except OSError as e:
                     print(f"    Error deleting: {e}")
 
         if delete_mode:
             print(f"\nSuccessfully deleted {len(files_to_delete)} files")
         else:
-            print(f"\nTo actually delete these files, run with --delete flag")
+            print("\nTo actually delete these files, run with --delete flag")
     else:
         print("\nNo files found to delete")
 
@@ -189,7 +183,7 @@ def find_and_handle_contaminated_files(metadata_jsonl_path, contaminated_pdf_ids
 
 def check_contamination(bench_data_dir, metadata_jsonl_path, sqlite_db_path, delete_mode=False):
     """Main function to check for contamination between bench data and training data."""
-    print(f"Checking contamination...")
+    print("Checking contamination...")
     print(f"Bench data directory: {bench_data_dir}")
     print(f"Metadata JSONL: {metadata_jsonl_path}")
     print(f"SQLite database: {sqlite_db_path}\n")
@@ -278,7 +272,7 @@ def check_contamination(bench_data_dir, metadata_jsonl_path, sqlite_db_path, del
             print(f"  PDF ID: {entry['pdf_id']}")
             print(f"    Source URL: {entry['source_url']}")
             print(f"    PDF Hash: {entry['pdf_hash']}")
-            print(f"    DB Result: {repr(entry['db_result'])}")
+            print(f"    DB Result: {entry['db_result']!r}")
         if len(blank_url_entries) > 20:
             print(f"  ... and {len(blank_url_entries) - 20} more entries with blank URLs\n")
 
@@ -331,7 +325,7 @@ def check_contamination(bench_data_dir, metadata_jsonl_path, sqlite_db_path, del
     total_contaminated = len(contaminated_urls) + len(blank_url_entries)
 
     if total_contaminated > 0:
-        print(f"\n⚠️  CONTAMINATION DETECTED!")
+        print("\n⚠️  CONTAMINATION DETECTED!")
         if contaminated_urls:
             print(f"  - Found {len(contaminated_urls)} matching URLs")
         if blank_url_entries:
@@ -339,7 +333,7 @@ def check_contamination(bench_data_dir, metadata_jsonl_path, sqlite_db_path, del
         print(f"  - Total contaminated PDF IDs: {len(contaminated_pdf_ids)}")
 
         if contaminated_urls:
-            print(f"\nMatching URLs (first 10):")
+            print("\nMatching URLs (first 10):")
             for url in sorted(contaminated_urls)[:10]:
                 print(f"  - {url}")
             if len(contaminated_urls) > 10:
@@ -353,7 +347,7 @@ def check_contamination(bench_data_dir, metadata_jsonl_path, sqlite_db_path, del
         print("\n✅ No contamination detected. Bench URLs and training URLs are disjoint, and no blank URLs found.")
 
     # Print summary statistics
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Bench URLs: {len(bench_urls)}")
     print(f"  Training URLs (mapped): {len(real_urls)}")
     print(f"  Contaminated URLs: {len(contaminated_urls)}")
@@ -396,4 +390,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

@@ -25,14 +25,16 @@ def read_jsonl(paths):
             with smart_open.smart_open(path, "r", encoding="utf-8") as f:
                 for line in f:
                     yield line.strip()
-        except Exception as e:
+        except (BotoCoreError, ClientError, OSError, UnicodeError) as e:
             print(f"Error reading {path}: {e}")
 
 
 def generate_presigned_url(s3_client, bucket_name, key_name):
     try:
         response = s3_client.generate_presigned_url(
-            "get_object", Params={"Bucket": bucket_name, "Key": key_name}, ExpiresIn=3600 * 24 * 7 - 100  # Link expires in 1 week
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": key_name},
+            ExpiresIn=3600 * 24 * 7 - 100,  # Link expires in 1 week
         )
         return response
     except (NoCredentialsError, PartialCredentialsError) as e:
@@ -54,38 +56,40 @@ def process_document(data, s3_client, template, output_dir):
     source_file = metadata.get("Source-File")
 
     # Generate base64 image of the corresponding PDF page
-    local_pdf = tempfile.NamedTemporaryFile("wb+", suffix=".pdf", delete=False)
+    local_pdf_path = None
     try:
-        pdf_bytes = get_s3_bytes(s3_client, source_file)
-        if pdf_bytes is None:
-            print(f"Failed to retrieve PDF from {source_file}")
-            return
-        local_pdf.write(pdf_bytes)
-        local_pdf.flush()
+        with tempfile.NamedTemporaryFile("wb+", suffix=".pdf", delete=False) as local_pdf:
+            local_pdf_path = local_pdf.name
+            pdf_bytes = get_s3_bytes(s3_client, source_file)
+            if pdf_bytes is None:
+                print(f"Failed to retrieve PDF from {source_file}")
+                return
+            local_pdf.write(pdf_bytes)
+            local_pdf.flush()
 
-        pages = []
-        for span in pdf_page_numbers:
-            start_index, end_index, page_num = span
-            page_text = text[start_index:end_index]
+            pages = []
+            for span in pdf_page_numbers:
+                start_index, end_index, page_num = span
+                page_text = text[start_index:end_index]
 
-            # Escape only dangerous HTML characters, preserving curly braces for LaTeX
-            # Don't escape curly braces {} as they're needed for LaTeX
-            page_text = page_text.replace("&", "&amp;")
-            page_text = page_text.replace("<", "&lt;")
-            page_text = page_text.replace(">", "&gt;")
-            page_text = page_text.replace('"', "&quot;")
-            page_text = page_text.replace("'", "&#x27;")
+                # Escape only dangerous HTML characters, preserving curly braces for LaTeX
+                # Don't escape curly braces {} as they're needed for LaTeX
+                page_text = page_text.replace("&", "&amp;")
+                page_text = page_text.replace("<", "&lt;")
+                page_text = page_text.replace(">", "&gt;")
+                page_text = page_text.replace('"', "&quot;")
+                page_text = page_text.replace("'", "&#x27;")
 
-            base64_image = render_pdf_to_base64webp(local_pdf.name, page_num)
+                base64_image = render_pdf_to_base64webp(local_pdf.name, page_num)
 
-            pages.append({"page_num": page_num, "text": page_text, "image": base64_image})
+                pages.append({"page_num": page_num, "text": page_text, "image": base64_image})
 
-    except Exception as e:
+    except (BotoCoreError, ClientError, OSError, RuntimeError, ValueError) as e:
         print(f"Error processing document ID {id_}: {e}")
         return
     finally:
-        local_pdf.close()
-        os.unlink(local_pdf.name)
+        if local_pdf_path is not None:
+            os.unlink(local_pdf_path)
 
     # Generate pre-signed URL if source_file is an S3 path
     s3_link = None
@@ -109,7 +113,7 @@ def process_document(data, s3_client, template, output_dir):
     # Render the HTML using the Jinja template
     try:
         html_content = template.render(id=id_, pages=pages, s3_link=s3_link, metadata=display_metadata, attributes=attributes)
-    except Exception as e:
+    except TemplateError as e:
         print(f"Error rendering HTML for document ID {id_}: {e}")
         return
 
@@ -120,7 +124,7 @@ def process_document(data, s3_client, template, output_dir):
         filepath = os.path.join(output_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(html_content)
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         print(f"Error writing HTML file for document ID {id_}: {e}")
 
 
@@ -139,38 +143,40 @@ def process_document_for_merge(data, s3_client):
     source_file = metadata.get("Source-File")
 
     # Generate base64 image of the corresponding PDF page
-    local_pdf = tempfile.NamedTemporaryFile("wb+", suffix=".pdf", delete=False)
+    local_pdf_path = None
     try:
-        pdf_bytes = get_s3_bytes(s3_client, source_file)
-        if pdf_bytes is None:
-            print(f"Failed to retrieve PDF from {source_file}")
-            return None
-        local_pdf.write(pdf_bytes)
-        local_pdf.flush()
+        with tempfile.NamedTemporaryFile("wb+", suffix=".pdf", delete=False) as local_pdf:
+            local_pdf_path = local_pdf.name
+            pdf_bytes = get_s3_bytes(s3_client, source_file)
+            if pdf_bytes is None:
+                print(f"Failed to retrieve PDF from {source_file}")
+                return None
+            local_pdf.write(pdf_bytes)
+            local_pdf.flush()
 
-        pages = []
-        for span in pdf_page_numbers:
-            start_index, end_index, page_num = span
-            page_text = text[start_index:end_index]
+            pages = []
+            for span in pdf_page_numbers:
+                start_index, end_index, page_num = span
+                page_text = text[start_index:end_index]
 
-            # Escape only dangerous HTML characters, preserving curly braces for LaTeX
-            # Don't escape curly braces {} as they're needed for LaTeX
-            page_text = page_text.replace("&", "&amp;")
-            page_text = page_text.replace("<", "&lt;")
-            page_text = page_text.replace(">", "&gt;")
-            page_text = page_text.replace('"', "&quot;")
-            page_text = page_text.replace("'", "&#x27;")
+                # Escape only dangerous HTML characters, preserving curly braces for LaTeX
+                # Don't escape curly braces {} as they're needed for LaTeX
+                page_text = page_text.replace("&", "&amp;")
+                page_text = page_text.replace("<", "&lt;")
+                page_text = page_text.replace(">", "&gt;")
+                page_text = page_text.replace('"', "&quot;")
+                page_text = page_text.replace("'", "&#x27;")
 
-            base64_image = render_pdf_to_base64webp(local_pdf.name, page_num)
+                base64_image = render_pdf_to_base64webp(local_pdf.name, page_num)
 
-            pages.append({"page_num": page_num, "text": page_text, "image": base64_image})
+                pages.append({"page_num": page_num, "text": page_text, "image": base64_image})
 
-    except Exception as e:
+    except (BotoCoreError, ClientError, OSError, RuntimeError, ValueError) as e:
         print(f"Error processing document ID {id_}: {e}")
         return None
     finally:
-        local_pdf.close()
-        os.unlink(local_pdf.name)
+        if local_pdf_path is not None:
+            os.unlink(local_pdf_path)
 
     # Generate pre-signed URL if source_file is an S3 path
     s3_link = None
@@ -219,7 +225,7 @@ def main(jsonl_paths, output_dir, template_path, s3_profile_name, merge=False):
         with open(os.path.join(os.path.dirname(__file__), template_file_name), "r", encoding="utf-8") as template_file:
             template_content = template_file.read()
             template = Template(template_content)
-    except Exception as e:
+    except (OSError, UnicodeError, TemplateError) as e:
         print(f"Error loading template: {e}")
         return
 
@@ -227,7 +233,7 @@ def main(jsonl_paths, output_dir, template_path, s3_profile_name, merge=False):
     try:
         workspace_session = boto3.Session(profile_name=s3_profile_name)
         s3_client = workspace_session.client("s3")
-    except Exception as e:
+    except (BotoCoreError, ClientError) as e:
         print(f"Error initializing S3 client: {e}")
         return
 
@@ -273,7 +279,7 @@ def main(jsonl_paths, output_dir, template_path, s3_profile_name, merge=False):
                     with open(output_path, "w", encoding="utf-8") as f:
                         f.write(html_content)
                     print(f"Created merged HTML: {output_path}")
-                except Exception as e:
+                except (OSError, UnicodeError, TemplateError) as e:
                     print(f"Error writing merged HTML for {jsonl_path}: {e}")
     else:
         # Original behavior: create separate HTML files for each document

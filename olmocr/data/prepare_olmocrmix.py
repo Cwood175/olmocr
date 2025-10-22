@@ -5,7 +5,7 @@ import tarfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import PathLike
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 from huggingface_hub import snapshot_download
@@ -21,7 +21,7 @@ def extract_tarball(tarball_path: Path, extract_dir: Path) -> int:
             for member in members:
                 try:
                     tar.extract(member, extract_dir)
-                except (OSError, IOError) as e:
+                except OSError:
                     # If extraction fails due to existing file, try to remove and re-extract
                     target_path = extract_dir / member.name
                     if target_path.exists():
@@ -34,9 +34,9 @@ def extract_tarball(tarball_path: Path, extract_dir: Path) -> int:
                             tar.extract(member, extract_dir)
                     else:
                         # Re-raise if it's not a file exists issue
-                        raise e
+                        raise
             return len(members)
-    except Exception as e:
+    except (tarfile.TarError, OSError) as e:
         print(f"Error extracting {tarball_path}: {e}")
         return 0
 
@@ -51,7 +51,7 @@ PAGE_RESPONSE_COLUMNS = [
 ]
 
 
-def _coerce_optional(value: Any) -> Optional[Any]:
+def _coerce_optional(value: Any) -> Any | None:
     """Convert pandas nulls to None."""
     if pd.isna(value):
         return None
@@ -86,7 +86,7 @@ def _coerce_rotation(value: Any, default: int = 0) -> int:
     return default
 
 
-def _coerce_text(value: Any) -> Optional[str]:
+def _coerce_text(value: Any) -> str | None:
     if value is None or pd.isna(value):
         return None
     text = str(value)
@@ -134,7 +134,7 @@ def extract_response_from_row(row: pd.Series) -> dict[str, Any]:
     return response_data
 
 
-def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: str | PathLike, max_examples: Optional[int] = None) -> str:
+def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: str | PathLike, max_examples: int | None = None) -> str:
     """
     Prepare OLMoCR mix dataset by downloading from HuggingFace and organizing into a folder structure.
 
@@ -250,12 +250,9 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                     with tqdm(total=len(tarball_files), desc="Extracting tarballs") as pbar:
                         for future in as_completed(future_to_tarball):
                             tarball = future_to_tarball[future]
-                            try:
-                                files_extracted = future.result()
-                                total_files_extracted += files_extracted
-                                pbar.set_postfix({"files": total_files_extracted})
-                            except Exception as e:
-                                print(f"\nError with {tarball.name}: {e}")
+                            files_extracted = future.result()
+                            total_files_extracted += files_extracted
+                            pbar.set_postfix({"files": total_files_extracted})
                             pbar.update(1)
 
                 print(f"Extracted {total_files_extracted} files from tarballs to {extracted_dir}")
@@ -268,7 +265,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
 
     # Create urls.jsonl file for id-to-url mappings
     urls_file_path = processed_dir / "urls.jsonl"
-    urls_file = open(urls_file_path, "w", encoding="utf-8")
+    url_entries = []
 
     for parquet_file in parquet_files:
         print(f"Processing {parquet_file.name}...")
@@ -280,17 +277,16 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                 break
 
             try:
-
                 response = extract_response_from_row(row)
                 doc_id = str(idx)
 
                 assert len(doc_id) > 4
 
-                # Extract URL from row and write to urls.jsonl
+                # Extract URL from row and add it to urls.jsonl entries
                 url = row.get("url", None)
                 if url:
                     url_entry = {"id": doc_id, "url": url}
-                    urls_file.write(json.dumps(url_entry) + "\n")
+                    url_entries.append(json.dumps(url_entry) + "\n")
 
                 # Create folder structure
                 # For allenai/olmOCR-mix-0225: use first 4 characters as folder
@@ -329,8 +325,7 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
 
                     # Write front matter
                     f.write("---\n")
-                    for k, v in front_matter.items():
-                        f.write(f"{k}: {v}\n")
+                    f.writelines(f"{k}: {v}\n" for k, v in front_matter.items())
 
                     if natural_text is not None and len(natural_text.strip()) > 0:
                         f.write("---\n")
@@ -361,15 +356,15 @@ def prepare_olmocr_mix(dataset_path: str, subset: str, split: str, destination: 
                 total_processed += 1
                 if total_processed % 1000 == 0:
                     print(f"Processed {total_processed} examples...")
-            except Exception as ex:
+            except (AssertionError, OSError, TypeError, ValueError) as ex:
                 print(f"Error processing line: {ex}")
                 total_errors += 1
 
         if max_examples and total_processed >= max_examples:
             break
 
-    # Close the urls.jsonl file
-    urls_file.close()
+    with open(urls_file_path, "w", encoding="utf-8") as urls_file:
+        urls_file.writelines(url_entries)
     print(f"Created urls.jsonl with {total_processed} id-to-url mappings")
 
     print(f"Completed! Processed {total_processed} examples to {processed_dir}")

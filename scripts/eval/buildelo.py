@@ -10,9 +10,9 @@ import boto3
 from dolma_refine.evaluate.aligners import HirschbergAligner
 from dolma_refine.evaluate.metrics import DocumentEditSimilarity
 from dolma_refine.evaluate.segmenters import SpacySegmenter
+from olmocr.eval.evalhtml import create_review_html
 from tqdm import tqdm
 
-from olmocr.eval.evalhtml import create_review_html
 from olmocr.s3_utils import expand_s3_glob, get_s3_bytes
 
 
@@ -152,8 +152,8 @@ if __name__ == "__main__":
             try:
                 pdf_results = future.result()
                 all_comps.extend(pdf_results)
-            except Exception as e:
-                print(f"Error processing {pdf_path}: {str(e)}")
+            except (OSError, ValueError) as e:
+                print(f"Error processing {pdf_path}: {e}")
 
     # Remove all results where the alignment is > 0.96 as these are just too similar to be useful
     all_comps = [c for c in all_comps if c.alignment < 0.96]

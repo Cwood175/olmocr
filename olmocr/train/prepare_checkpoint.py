@@ -89,8 +89,7 @@ def download_file_from_hf(filename: str, destination_dir: str, hf_base_url: str)
     response.raise_for_status()
 
     with open(local_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+        f.writelines(response.iter_content(chunk_size=8192))
 
     print(f"Downloaded {filename}")
 
@@ -119,7 +118,7 @@ def detect_checkpoint_architecture(config_path: str) -> str:
         elif "Qwen2-VL" in model_name:
             detected_architecture = "Qwen2VLForConditionalGeneration"
         else:
-            raise ValueError(f"No supported architecture found. Expected one of {SUPPORTED_ARCHITECTURES} " f"but found: {architectures}")
+            raise ValueError(f"No supported architecture found. Expected one of {SUPPORTED_ARCHITECTURES} but found: {architectures}")
 
     print(f"✓ Detected architecture: {detected_architecture}")
     return detected_architecture
@@ -453,14 +452,10 @@ def main():
     sources = args.paths[:-1]
     destination = args.paths[-1]
 
-    try:
-        prepare_checkpoints(sources, destination)
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        return 1
+    prepare_checkpoints(sources, destination)
 
     return 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())

@@ -50,18 +50,15 @@ def run_marker(pdf_path: str, page_num: int = 1) -> str:
         writer.add_page(reader.pages[page_num - 1])
 
         # Save the extracted page to a temporary file
-        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        temp_file.close()  # Close the file but keep the name
-
-        with open(temp_file.name, "wb") as output_pdf:
-            writer.write(output_pdf)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+            writer.write(temp_file)
 
         pdf_to_process = temp_file.name
 
     try:
         # Process the PDF (either original or single-page extract)
         rendered = _marker_converter(pdf_to_process)
-        text, _, images = text_from_rendered(rendered)
+        text, _, _ = text_from_rendered(rendered)
         return text
     finally:
         # Clean up the temporary file if it was created

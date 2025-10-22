@@ -1,6 +1,5 @@
 import glob
 import os
-from typing import Dict, List, Tuple
 
 from tqdm import tqdm
 
@@ -10,7 +9,7 @@ from .tests import BasePDFTest
 
 
 def generate_html_report(
-    test_results_by_candidate: Dict[str, Dict[str, Dict[int, List[Tuple[BasePDFTest, bool, str]]]]], pdf_folder: str, output_file: str
+    test_results_by_candidate: dict[str, dict[str, dict[int, list[tuple[BasePDFTest, bool, str]]]]], pdf_folder: str, output_file: str
 ) -> None:
     """
     Generate a simple static HTML report of test results.
@@ -146,35 +145,35 @@ def generate_html_report(
 """
 
                     # Add test details based on type
-                    test_type = getattr(test, "type", "").lower()
+                    test_type = test.type.lower()
                     if test_type == "present" and hasattr(test, "text"):
-                        text = getattr(test, "text", "")
+                        text = test.text
                         html += f"""            <p><strong>Text to find:</strong> "{text}"</p>\n"""
                     elif test_type == "absent" and hasattr(test, "text"):
-                        text = getattr(test, "text", "")
+                        text = test.text
                         html += f"""            <p><strong>Text should not appear:</strong> "{text}"</p>\n"""
                     elif test_type == "order" and hasattr(test, "before") and hasattr(test, "after"):
-                        before = getattr(test, "before", "")
-                        after = getattr(test, "after", "")
+                        before = test.before
+                        after = test.after
                         html += f"""            <p><strong>Text order:</strong> "{before}" should appear before "{after}"</p>\n"""
                     elif test_type == "table":
                         if hasattr(test, "cell"):
-                            cell = getattr(test, "cell", "")
+                            cell = test.cell
                             html += f"""            <p><strong>Table cell:</strong> "{cell}"</p>\n"""
-                        if hasattr(test, "up") and getattr(test, "up", None):
-                            up = getattr(test, "up")
+                        if hasattr(test, "up") and test.up:
+                            up = test.up
                             html += f"""            <p><strong>Above:</strong> "{up}"</p>\n"""
-                        if hasattr(test, "down") and getattr(test, "down", None):
-                            down = getattr(test, "down")
+                        if hasattr(test, "down") and test.down:
+                            down = test.down
                             html += f"""            <p><strong>Below:</strong> "{down}"</p>\n"""
-                        if hasattr(test, "left") and getattr(test, "left", None):
-                            left = getattr(test, "left")
+                        if hasattr(test, "left") and test.left:
+                            left = test.left
                             html += f"""            <p><strong>Left:</strong> "{left}"</p>\n"""
-                        if hasattr(test, "right") and getattr(test, "right", None):
-                            right = getattr(test, "right")
+                        if hasattr(test, "right") and test.right:
+                            right = test.right
                             html += f"""            <p><strong>Right:</strong> "{right}"</p>\n"""
                     elif test_type == "math" and hasattr(test, "math"):
-                        math = getattr(test, "math", "")
+                        math = test.math
                         html += f"""            <p><strong>Math equation:</strong> {math}</p>\n"""
 
                     html += """        </div>\n"""
@@ -191,8 +190,8 @@ def generate_html_report(
                         html += """        <h4>PDF Render:</h4>\n"""
                         image_data = render_pdf_to_base64webp(pdf_path, page, 1024)
                         html += f"""        <img class="pdf-image" alt="PDF Page {page}" src="data:image/webp;base64,{image_data}" />\n"""
-                    except Exception as e:
-                        html += f"""        <p>Error rendering PDF: {str(e)}</p>\n"""
+                    except (OSError, RuntimeError, ValueError, IndexError) as e:
+                        html += f"""        <p>Error rendering PDF: {e!s}</p>\n"""
 
                     # Get the Markdown content for this page
                     md_content = None
@@ -203,8 +202,8 @@ def generate_html_report(
                             md_file_path = md_files[0]  # Use the first repeat as an example
                             with open(md_file_path, "r", encoding="utf-8") as f:
                                 md_content = f.read()
-                    except Exception as e:
-                        md_content = f"Error loading Markdown content: {str(e)}"
+                    except (OSError, UnicodeError) as e:
+                        md_content = f"Error loading Markdown content: {e!s}"
 
                     if md_content:
                         html += """        <h4>Markdown Content:</h4>\n"""

@@ -18,7 +18,6 @@ import base64
 import json
 import os
 import random
-from typing import List, Optional
 
 import pypdf
 from google import genai
@@ -63,12 +62,12 @@ def extract_page_from_pdf(input_path: str, output_path: str, page_num: int) -> b
             writer.write(output_file)
 
         return True
-    except Exception as e:
-        print(f"Error extracting page {page_num} from {input_path}: {str(e)}")
+    except (OSError, pypdf.errors.PyPdfError) as e:
+        print(f"Error extracting page {page_num} from {input_path}: {e!s}")
         raise
 
 
-def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[List[str]]:
+def detect_equations(pdf_path: str, page_num: int, api_key: str) -> list[str] | None:
     """
     Use Gemini to detect mathematical equations in a rendered PDF page.
 
@@ -88,8 +87,8 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
     # Render the PDF page as an image
     try:
         image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num + 1, target_longest_image_dim=2048)  # render_pdf_to_base64png is 1-indexed
-    except Exception as e:
-        print(f"Error rendering PDF page: {str(e)}")
+    except (OSError, RuntimeError, ValueError) as e:
+        print(f"Error rendering PDF page: {e!s}")
         return None
 
     image_part = types.Part(inline_data=types.Blob(mime_type="image/png", data=base64.b64decode(image_base64)))
@@ -135,7 +134,7 @@ def detect_equations(pdf_path: str, page_num: int, api_key: str) -> Optional[Lis
     return data.get("equations", [])
 
 
-def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPresenceTest], max_pages_per_pdf: int = 10) -> None:
+def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: list[TextPresenceTest], max_pages_per_pdf: int = 10) -> None:
     """
     Process a single PDF, extracting equations from multiple pages.
 
@@ -181,21 +180,21 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
             equations = [eq for eq in equations if len(eq.strip()) > 3]
 
             if not equations:
-                print(f"No equations detected in {pdf_filename} page {page_num+1}")
+                print(f"No equations detected in {pdf_filename} page {page_num + 1}")
                 continue
 
             # Extract the page and save to output dir
             pdf_basename = os.path.splitext(pdf_filename)[0]
-            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num+1}.pdf")
+            output_pdf_path = os.path.join(output_dir, "pdfs", f"{pdf_basename}_pg{page_num + 1}.pdf")
 
             extract_page_from_pdf(pdf_path, output_pdf_path, page_num)
 
             # Create tests for each equation
             for i, equation in enumerate(equations):
-                test_id = f"{pdf_basename}_pg{page_num+1}_equation_{i:02d}"
+                test_id = f"{pdf_basename}_pg{page_num + 1}_equation_{i:02d}"
                 test = TextPresenceTest(
                     id=test_id,
-                    pdf=f"{pdf_basename}_pg{page_num+1}.pdf",
+                    pdf=f"{pdf_basename}_pg{page_num + 1}.pdf",
                     page=1,  # The extracted PDF has only one page
                     type="present",
                     text=equation,
@@ -203,16 +202,16 @@ def process_pdf(pdf_path: str, output_dir: str, api_key: str, tests: List[TextPr
                 )
                 tests.append(test)
 
-            print(f"Processed {pdf_filename} page {page_num+1}, found {len(equations)} equations")
+            print(f"Processed {pdf_filename} page {page_num + 1}, found {len(equations)} equations")
             processed_pages += 1
 
         print(f"Completed processing {processed_pages} pages from {pdf_filename}")
 
-    except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
+    except (OSError, pypdf.errors.PyPdfError) as e:
+        print(f"Error processing {pdf_filename}: {e!s}")
 
 
-def get_pdf_files_from_directory(directory: str) -> List[str]:
+def get_pdf_files_from_directory(directory: str) -> list[str]:
     """
     Get a list of all PDF files in a directory.
 

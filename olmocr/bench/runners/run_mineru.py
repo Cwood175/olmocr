@@ -16,6 +16,8 @@ def run_mineru(pdf_path: str, page_num: int = 1) -> str:
     image_writer = FileBasedDataWriter(image_output_folder.name)
     md_writer = FileBasedDataWriter(output_folder.name)
 
+    temp_file = None
+
     if page_num > 0:  # If a specific page is requested
         reader = PdfReader(pdf_path)
 
@@ -29,10 +31,7 @@ def run_mineru(pdf_path: str, page_num: int = 1) -> str:
         writer.add_page(reader.pages[page_num - 1])
 
         # Save the extracted page to a temporary file
-        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        temp_file.close()  # Close the file but keep the name
-
-        with open(temp_file.name, "wb") as output_pdf:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file, open(temp_file.name, "wb") as output_pdf:
             writer.write(output_pdf)
 
         pdf_to_process = temp_file.name

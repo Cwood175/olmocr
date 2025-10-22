@@ -15,13 +15,13 @@ Usage:
 import argparse
 import os
 import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 
 import boto3
 import pypdf
+from botocore.exceptions import BotoCoreError, ClientError
 from lingua import Language
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from pydantic import BaseModel
 from tqdm import tqdm
 
@@ -63,12 +63,12 @@ def download_pdf_from_s3(s3_path: str, local_path: str) -> bool:
         # Download file
         s3.download_file(bucket, key, local_path)
         return True
-    except Exception as e:
-        print(f"Error downloading {s3_path}: {str(e)}")
+    except (BotoCoreError, ClientError, IndexError, OSError) as e:
+        print(f"Error downloading {s3_path}: {e!s}")
         return False
 
 
-def check_for_table(pdf_path: str, page_num: int, api_key: str) -> Optional[bool]:
+def check_for_table(pdf_path: str, page_num: int, api_key: str) -> bool | None:
     """
     Use GPT-4o to check if a page contains a table.
 
@@ -121,8 +121,8 @@ def check_for_table(pdf_path: str, page_num: int, api_key: str) -> Optional[bool
 
         return is_non_english
 
-    except Exception as e:
-        print(f"Error checking {pdf_path} page {page_num}: {str(e)}")
+    except (OSError, OpenAIError, ValueError) as e:
+        print(f"Error checking {pdf_path} page {page_num}: {e!s}")
         return None
 
 
@@ -175,7 +175,7 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> b
 
             # Create output filename with basename_pgnum.pdf format
             pdf_basename = os.path.splitext(pdf_filename)[0]
-            output_pdf_path = os.path.join(output_dir, f"{pdf_basename}_pg{page_num+1}.pdf")
+            output_pdf_path = os.path.join(output_dir, f"{pdf_basename}_pg{page_num + 1}.pdf")
 
             # Extract the single page
             writer = pypdf.PdfWriter()
@@ -185,13 +185,13 @@ def process_pdf(s3_path: str, temp_dir: str, output_dir: str, api_key: str) -> b
             with open(output_pdf_path, "wb") as output_file:
                 writer.write(output_file)
 
-            print(f"Extracted page {page_num+1} with table from {pdf_filename} to {os.path.basename(output_pdf_path)}")
+            print(f"Extracted page {page_num + 1} with table from {pdf_filename} to {os.path.basename(output_pdf_path)}")
             return True
 
         return False
 
-    except Exception as e:
-        print(f"Error processing {pdf_filename}: {str(e)}")
+    except (OSError, pypdf.errors.PyPdfError, ValueError) as e:
+        print(f"Error processing {pdf_filename}: {e!s}")
         return False
     finally:
         if os.path.exists(local_pdf_path):
@@ -276,8 +276,8 @@ def main():
                                 for f in futures:
                                     f.cancel()
                                 break
-                    except Exception as e:
-                        print(f"Error in parallel processing: {str(e)}")
+                    except CancelledError as e:
+                        print(f"Error in parallel processing: {e!s}")
     else:
         # Sequential processing
         for s3_path in tqdm(pdf_paths, desc="Processing PDFs"):

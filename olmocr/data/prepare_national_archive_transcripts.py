@@ -91,7 +91,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
 
 import requests
 from PIL import Image
@@ -112,7 +111,7 @@ def download_image(url: str, output_path: Path, max_retries: int = 5) -> bool:
                     if chunk:
                         f.write(chunk)
             return True
-        except Exception as e:
+        except (requests.RequestException, OSError) as e:
             print(f"Download attempt {attempt + 1} failed for {url}: {e}")
             if attempt < max_retries - 1:
                 wait_time = 2 ** (attempt + 1)
@@ -163,12 +162,41 @@ def process_image_file(image_path: Path, output_path: Path, target_size_mb: floa
                 f.write(convert_image_to_pdf_bytes(str(image_path)))
 
         return True
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"Failed to process image {image_path}: {e}")
         return False
 
 
-def extract_transcriptions_with_target(record: Dict, object_id: str) -> Tuple[str, Optional[Dict]]:
+def process_object_files(object_id: str, object_url: str, transcription: str, temp_dir: Path, pdf_path: Path, md_path: Path) -> bool:
+    """Download an object's image and create its PDF and transcription files."""
+    ext = Path(object_url).suffix or ".jpg"
+    image_path = temp_dir / f"{object_id}_{threading.current_thread().ident}{ext}"
+
+    try:
+        if not download_image(object_url, image_path):
+            raise RuntimeError("Failed to download image")
+
+        if not process_image_file(image_path, pdf_path):
+            raise RuntimeError("Failed to convert to PDF")
+
+        md_path.write_text(transcription, encoding="utf-8")
+
+        if not pdf_path.exists() or not md_path.exists():
+            raise FileNotFoundError("Output files were not created")
+        if pdf_path.stat().st_size <= 0:
+            raise ValueError("PDF file is empty")
+
+        image_path.unlink(missing_ok=True)
+        return True
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
+        print(f"Error processing object {object_id}: {e}")
+        pdf_path.unlink(missing_ok=True)
+        md_path.unlink(missing_ok=True)
+        image_path.unlink(missing_ok=True)
+        return False
+
+
+def extract_transcriptions_with_target(record: dict, object_id: str) -> tuple[str | None, dict | None]:
     """Extract transcriptions and target info for a specific object ID.
     Returns (transcription_text, target_dict)
     """
@@ -177,20 +205,18 @@ def extract_transcriptions_with_target(record: Dict, object_id: str) -> Tuple[st
         return None, None
 
     for trans in record.get("record_transcription", []):
-        # Check if this transcription is for our object
+        # Check if this transcription is for our object and is a transcription
         target = trans.get("target", {})
-        if str(target.get("objectId")) == str(object_id):
-            # Check contributionType is transcription
-            if trans.get("contributionType") == "transcription":
-                contribution = trans.get("contribution", "")
-                if contribution:
-                    return contribution, target
+        if str(target.get("objectId")) == str(object_id) and trans.get("contributionType") == "transcription":
+            contribution = trans.get("contribution", "")
+            if contribution:
+                return contribution, target
 
     # If nothing was found, then we will be skipping this entry
     return None, None
 
 
-def check_ai_generated_tags(record: Dict) -> bool:
+def check_ai_generated_tags(record: dict) -> bool:
     """Check if any tags are AI/machine generated."""
     for tag in record.get("record_tag", []):
         if tag.get("aiMachineGenerated", False):
@@ -198,7 +224,7 @@ def check_ai_generated_tags(record: Dict) -> bool:
     return False
 
 
-def scan_existing_outputs(output_dir: Path) -> Set[str]:
+def scan_existing_outputs(output_dir: Path) -> set[str]:
     """Scan output directory to find all already processed items.
     Returns set of processed identifiers in format 'naId-objectId-pageNum'
     """
@@ -229,8 +255,8 @@ def scan_existing_outputs(output_dir: Path) -> Set[str]:
 
 
 def process_single_record(
-    record_data: Dict, output_dir: Path, processed_lock: threading.Lock, processed_items: Set[str], jsonl_stem: str
-) -> Tuple[int, int, int]:
+    record_data: dict, output_dir: Path, processed_lock: threading.Lock, processed_items: set[str], jsonl_stem: str
+) -> tuple[int, int, int]:
     """Process a single record. Returns (processed_count, skipped_count, error_count)."""
 
     processed = 0
@@ -292,60 +318,27 @@ def process_single_record(
         md_path = jsonl_output_dir / f"{filename}.md"
 
         # Double-check files on disk
-        if pdf_path.exists() and md_path.exists():
-            if pdf_path.stat().st_size > 0:
-                with processed_lock:
-                    processed_items.add(object_id)
-                processed += 1
-                continue
+        if pdf_path.exists() and md_path.exists() and pdf_path.stat().st_size > 0:
+            with processed_lock:
+                processed_items.add(object_id)
+            processed += 1
+            continue
 
         # Create temp directory
         temp_dir = jsonl_output_dir / "temp"
         temp_dir.mkdir(exist_ok=True)
 
-        try:
-            # Download image
-            ext = Path(object_url).suffix or ".jpg"
-            image_path = temp_dir / f"{object_id}_{threading.current_thread().ident}{ext}"
-
-            if not download_image(object_url, image_path):
-                raise Exception(f"Failed to download image")
-
-            # Process and convert to PDF
-            if not process_image_file(image_path, pdf_path):
-                raise Exception(f"Failed to convert to PDF")
-
-            # Create markdown file (can be empty)
-            with open(md_path, "w", encoding="utf-8") as f:
-                f.write(transcription)
-
-            # Verify files created
-            if pdf_path.exists() and md_path.exists():
-                if pdf_path.stat().st_size > 0:
-                    with processed_lock:
-                        processed_items.add(filename)
-                    processed += 1
-
-                    # Clean up temp image
-                    image_path.unlink(missing_ok=True)
-                else:
-                    raise Exception("PDF file is empty")
-            else:
-                raise Exception("Output files were not created")
-
-        except Exception as e:
-            print(f"Error processing object {object_id}: {e}")
+        if process_object_files(object_id, object_url, transcription, temp_dir, pdf_path, md_path):
+            with processed_lock:
+                processed_items.add(filename)
+            processed += 1
+        else:
             errors += 1
-            # Clean up any partial files
-            pdf_path.unlink(missing_ok=True)
-            md_path.unlink(missing_ok=True)
-            if "image_path" in locals() and image_path.exists():
-                image_path.unlink(missing_ok=True)
 
     return processed, skipped, errors
 
 
-def process_jsonl_file(jsonl_path: Path, output_dir: Path, processed_items: Set[str], max_workers: int = 1) -> None:
+def process_jsonl_file(jsonl_path: Path, output_dir: Path, processed_items: set[str], max_workers: int = 1) -> None:
     """Process a single JSONL file containing National Archives records."""
 
     # Create output subdirectory based on parent folder name
@@ -400,8 +393,8 @@ def process_jsonl_file(jsonl_path: Path, output_dir: Path, processed_items: Set[
                     temp_file.unlink(missing_ok=True)
                 try:
                     temp_dir.rmdir()
-                except:
-                    pass
+                except OSError as e:
+                    print(f"Failed to remove temporary directory {temp_dir}: {e}")
 
     print(f"Completed {jsonl_path.name}: {total_processed} processed, {total_skipped} skipped, {total_errors} errors")
 

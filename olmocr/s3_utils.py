@@ -8,7 +8,6 @@ import posixpath
 import time
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
-from typing import List, Optional
 from urllib.parse import urlparse
 
 import boto3
@@ -16,7 +15,9 @@ import requests  # type: ignore
 import zstandard as zstd
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
+from google.api_core.exceptions import GoogleAPIError
+from google.auth.exceptions import GoogleAuthError
 from google.cloud import storage
 from tqdm import tqdm
 
@@ -25,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 def parse_s3_path(s3_path: str) -> tuple[str, str]:
-    if not (s3_path.startswith("s3://") or s3_path.startswith("gs://") or s3_path.startswith("weka://")):
+    if not s3_path.startswith(("s3://", "gs://", "weka://")):
         raise ValueError("s3_path must start with s3://, gs://, or weka://")
     parsed = urlparse(s3_path)
     bucket = parsed.netloc
@@ -68,7 +69,7 @@ def expand_s3_glob(s3_client, s3_glob: str) -> dict[str, str]:
         resp = s3_client.head_object(Bucket=bucket, Key=raw_path)
 
         if resp["ContentType"] == "application/x-directory":
-            raise ValueError(f"'{s3_glob}' appears to be a folder. " f"Use a wildcard (e.g., '{s3_glob.rstrip('/')}/*.pdf') to match files.")
+            raise ValueError(f"'{s3_glob}' appears to be a folder. Use a wildcard (e.g., '{s3_glob.rstrip('/')}/*.pdf') to match files.")
 
         return {f"s3://{bucket}/{raw_path}": resp["ETag"].strip('"')}
     except ClientError as e:
@@ -78,14 +79,14 @@ def expand_s3_glob(s3_client, s3_glob: str) -> dict[str, str]:
             paginator = s3_client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=bucket, Prefix=check_prefix):
                 if page.get("Contents"):
-                    raise ValueError(f"'{s3_glob}' appears to be a folder. " f"Use a wildcard (e.g., '{s3_glob.rstrip('/')}/*.pdf') to match files.")
+                    raise ValueError(f"'{s3_glob}' appears to be a folder. Use a wildcard (e.g., '{s3_glob.rstrip('/')}/*.pdf') to match files.")
             raise ValueError(f"No object or prefix found at '{s3_glob}'. Check your path or add a wildcard.")
         else:
             raise
 
 
-def get_s3_bytes(s3_client, s3_path: str, start_index: Optional[int] = None, end_index: Optional[int] = None) -> bytes:
-    is_cloud_path = s3_path.startswith("s3://") or s3_path.startswith("gs://") or s3_path.startswith("weka://")
+def get_s3_bytes(s3_client, s3_path: str, start_index: int | None = None, end_index: int | None = None) -> bytes:
+    is_cloud_path = s3_path.startswith(("s3://", "gs://", "weka://"))
 
     # Fall back for local files
     if not is_cloud_path:
@@ -95,7 +96,7 @@ def get_s3_bytes(s3_client, s3_path: str, start_index: Optional[int] = None, end
                 return f.read()
         else:
             logger.error(f"Could not find local file {s3_path}")
-            raise Exception(f"Could not find local file {s3_path}")
+            raise FileNotFoundError(f"Could not find local file {s3_path}")
 
     bucket, key = parse_s3_path(s3_path)
 
@@ -135,17 +136,17 @@ def get_s3_bytes_with_backoff(s3_client, pdf_s3_path, max_retries: int = 8, back
                 raise
             else:
                 wait_time = backoff_factor**attempt
-                logger.warning(f"Attempt {attempt+1} failed to get_s3_bytes for {pdf_s3_path}: {e}. Retrying in {wait_time} seconds...")
+                logger.warning(f"Attempt {attempt + 1} failed to get_s3_bytes for {pdf_s3_path}: {e}. Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
                 attempt += 1
-        except Exception as e:
+        except (BotoCoreError, OSError) as e:
             wait_time = backoff_factor**attempt
-            logger.warning(f"Attempt {attempt+1} failed to get_s3_bytes for {pdf_s3_path}: {e}. Retrying in {wait_time} seconds...")
+            logger.warning(f"Attempt {attempt + 1} failed to get_s3_bytes for {pdf_s3_path}: {e}. Retrying in {wait_time} seconds...")
             time.sleep(wait_time)
             attempt += 1
 
     logger.error(f"Failed to get_s3_bytes for {pdf_s3_path} after {max_retries} retries.")
-    raise Exception("Failed to get_s3_bytes after retries")
+    raise RuntimeError("Failed to get_s3_bytes after retries")
 
 
 def put_s3_bytes(s3_client, s3_path: str, data: bytes):
@@ -189,14 +190,16 @@ def is_running_on_gcp():
     try:
         # GCP metadata server URL to check instance information
         response = requests.get(
-            "http://metadata.google.internal/computeMetadata/v1/instance/", headers={"Metadata-Flavor": "Google"}, timeout=1  # Set a short timeout
+            "http://metadata.google.internal/computeMetadata/v1/instance/",
+            headers={"Metadata-Flavor": "Google"},
+            timeout=1,  # Set a short timeout
         )
         return response.status_code == 200
     except requests.RequestException:
         return False
 
 
-def download_directory(model_choices: List[str], local_dir: str):
+def download_directory(model_choices: list[str], local_dir: str):
     """
     Download the model to a specified local directory.
     The function will attempt to download from the first available source in the provided list.
@@ -217,7 +220,8 @@ def download_directory(model_choices: List[str], local_dir: str):
     weka_choices = [path for path in model_choices if path.startswith("weka://")]
 
     # This is so hacky, but if you are on beaker/pluto, don't use weka
-    if os.environ.get("BEAKER_NODE_HOSTNAME", "").lower().startswith("pluto") or os.environ.get("BEAKER_NODE_HOSTNAME", "").lower().startswith("augusta"):
+    hostname = os.environ.get("BEAKER_NODE_HOSTNAME", "").lower()
+    if hostname.startswith(("pluto", "augusta")):
         weka_choices = []
 
     other_choices = [path for path in model_choices if not path.startswith("weka://")]
@@ -240,7 +244,7 @@ def download_directory(model_choices: List[str], local_dir: str):
                 return
             else:
                 logger.warning(f"Unsupported model path scheme: {model_path}")
-        except Exception as e:
+        except (BotoCoreError, GoogleAPIError, GoogleAuthError, OSError, ValueError) as e:
             logger.error(f"Failed to download from {model_path}: {e}")
             continue
 
@@ -278,7 +282,7 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
             try:
                 blob.download_to_filename(local_file_path)
                 logger.info(f"Successfully downloaded {blob.name} to {local_file_path}")
-            except Exception as e:
+            except (GoogleAPIError, OSError) as e:
                 logger.error(f"Failed to download {blob.name} to {local_file_path}: {e}")
                 raise
 
@@ -308,7 +312,10 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
         logger.info(f"Found {total_files} files in {'Weka' if storage_type == 'weka' else 'S3'} bucket '{bucket_name}' with prefix '{prefix}'.")
 
         transfer_config = TransferConfig(
-            multipart_threshold=8 * 1024 * 1024, multipart_chunksize=8 * 1024 * 1024, max_concurrency=10, use_threads=True  # Reduced for WekaFS compatibility
+            multipart_threshold=8 * 1024 * 1024,
+            multipart_chunksize=8 * 1024 * 1024,
+            max_concurrency=10,
+            use_threads=True,  # Reduced for WekaFS compatibility
         )
 
         def should_download(obj, local_file_path):
@@ -320,7 +327,7 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
                 with open(local_file_path, "wb") as f:
                     s3_client.download_fileobj(bucket_name, obj["Key"], f, Config=transfer_config)
                 logger.info(f"Successfully downloaded {obj['Key']} to {local_file_path}")
-            except Exception as e:
+            except (BotoCoreError, OSError) as e:
                 logger.error(f"Failed to download {obj['Key']} to {local_file_path}: {e}")
                 raise
 
@@ -346,7 +353,7 @@ def download_dir_from_storage(storage_path: str, local_dir: str, storage_type: s
             for future in tqdm(concurrent.futures.as_completed(futures), total=total_files, desc=f"Downloading from {storage_type.upper()}"):
                 try:
                     future.result()
-                except Exception as e:
+                except (BotoCoreError, GoogleAPIError, OSError, concurrent.futures.CancelledError) as e:
                     logger.error(f"Error occurred during download: {e}")
         else:
             logger.info("All files are up-to-date. No downloads needed.")

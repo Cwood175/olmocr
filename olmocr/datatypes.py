@@ -25,8 +25,8 @@ class PdfOutput:
             "id": id_,
             "text": self.text,
             "source": "s2pdf",
-            "added": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "created": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "added": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d"),
+            "created": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d"),
             "metadata": metadata,
         }
 

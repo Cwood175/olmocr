@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Batch VLM inference comparison between vLLM and HuggingFace.
 Processes prompts and images from WildVision-bench until finding significant mismatch.
@@ -13,12 +12,13 @@ import random
 import shutil
 import tempfile
 from io import BytesIO
-from typing import Dict, List
+from typing import Any
 
 import numpy as np
 import PIL.Image
 import torch
 from huggingface_hub import snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
 from transformers import AutoModelForVision2Seq, AutoProcessor
 from vllm import LLM, SamplingParams
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 async def download_model(model_name_or_path: str, max_retries: int = 5):
     for retry in range(max_retries):
         try:
-            if model_name_or_path.startswith("s3://") or model_name_or_path.startswith("gs://") or model_name_or_path.startswith("weka://"):
+            if model_name_or_path.startswith(("s3://", "gs://", "weka://")):
                 logger.info(f"Downloading model directory from '{model_name_or_path}'")
                 model_cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "olmocr", "model")
                 # Delete existing model cache directory if it exists
@@ -46,7 +46,7 @@ async def download_model(model_name_or_path: str, max_retries: int = 5):
                 logger.info(f"Downloading model with hugging face '{model_name_or_path}'")
                 snapshot_download(repo_id=model_name_or_path)
                 return model_name_or_path
-        except Exception:
+        except (HfHubHTTPError, OSError, RuntimeError, ValueError):
             if retry == max_retries - 1:
                 raise  # Raise on final attempt and fail the job
             logger.warning(f"Model download failed (attempt {retry + 1}/{max_retries}), retrying...")
@@ -61,7 +61,7 @@ def image_to_base64_data_url(image):
     return f"data:image/png;base64,{img_str}"
 
 
-async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> List[Dict[str, str]]:
+async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: int = 2048) -> list[dict[str, str]]:
     """Load prompts and images from olmOCR-mix-0225-benchmarkset dataset with fixed random seed."""
     print(f"Loading olmOCR-mix-0225-benchmarkset dataset with {num_samples} samples and seed {seed}")
 
@@ -113,7 +113,7 @@ async def load_pdf_prompts(num_samples: int = 100, seed: int = 42, max_length: i
         return queries
 
 
-def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, sampling_params, device, args):
+def process_single_prompt(sample: dict[str, Any], llm, hf_model, processor, sampling_params, device, args):
     """Process a single prompt with image and return comparison results."""
     # Track if we found the first mismatch for max_prob_first_diff
     found_first_mismatch = False
@@ -144,7 +144,7 @@ def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, samp
     image_bytes = base64.b64decode(image_base64)
     image = PIL.Image.open(BytesIO(image_bytes))
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"PROMPT: {text_prompt[:100]}..." if len(text_prompt) > 100 else f"PROMPT: {text_prompt}")
     print(f"IMAGE: {image.size} {image.mode}")
 
@@ -252,7 +252,7 @@ def process_single_prompt(sample: Dict[str, any], llm, hf_model, processor, samp
             print(f"{pos:>4} {token_id:>8} {token_str:>20} {token_type:>8} {vllm_prob_str:>12} {'':>10} {'':>12} {'':>6} {'':<20}")
 
     # Summary
-    print(f"\n=== Summary ===")
+    print("\n=== Summary ===")
     print(f"Total tokens generated: {len(generated_token_ids)}")
 
     # Calculate match rate
@@ -322,9 +322,9 @@ async def async_main():
     # Initialize statistics tracking
     all_results = []
     for i, sample in enumerate(samples):
-        print(f"\n\n{'#'*80}")
-        print(f"### Processing sample {i+1}/{len(samples)}")
-        print(f"{'#'*80}")
+        print(f"\n\n{'#' * 80}")
+        print(f"### Processing sample {i + 1}/{len(samples)}")
+        print(f"{'#' * 80}")
 
         # Process single sample
         result = process_single_prompt(sample, llm, hf_model, processor_hf, sampling_params, device, args)
@@ -332,23 +332,23 @@ async def async_main():
 
         # Check if we found significant mismatch
         if result["first_mismatch_idx"] is not None and result["max_prob_first_diff"] > args.prob_threshold:
-            print(f"\n\n{'*'*80}")
-            print(f"*** FOUND SIGNIFICANT MISMATCH ***")
+            print(f"\n\n{'*' * 80}")
+            print("*** FOUND SIGNIFICANT MISMATCH ***")
             print(f"*** First mismatch probability difference: {result['max_prob_first_diff']:.6f} > {args.prob_threshold} ***")
-            print(f"*** Stopping after sample {i+1}/{len(samples)} ***")
-            print(f"{'*'*80}")
+            print(f"*** Stopping after sample {i + 1}/{len(samples)} ***")
+            print(f"{'*' * 80}")
 
     # Report aggregated statistics
-    print(f"\n\n{'='*80}")
+    print(f"\n\n{'=' * 80}")
     print("=== AGGREGATED STATISTICS ===")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     total_samples = len(all_results)
     samples_with_mismatches = sum(1 for r in all_results if r["first_mismatch_idx"] is not None)
     total_tokens_generated = sum(r["num_generated"] for r in all_results)
 
     print(f"Total samples processed: {total_samples}")
-    print(f"Samples with mismatches: {samples_with_mismatches} ({samples_with_mismatches/total_samples*100:.1f}%)")
+    print(f"Samples with mismatches: {samples_with_mismatches} ({samples_with_mismatches / total_samples * 100:.1f}%)")
     print(f"Total tokens generated: {total_tokens_generated}")
 
     if samples_with_mismatches > 0:
@@ -360,7 +360,7 @@ async def async_main():
         first_mismatch_positions = [r["first_mismatch_idx"] for r in all_results if r["first_mismatch_idx"] is not None]
         avg_first_mismatch_pos = sum(first_mismatch_positions) / len(first_mismatch_positions)
 
-        print(f"\nMismatch Statistics:")
+        print("\nMismatch Statistics:")
         print(f"  Average token match rate: {avg_match_rate:.1f}%")
         print(f"  Average first mismatch position: {avg_first_mismatch_pos:.1f}")
         print(f"  Average first mismatch prob diff: {avg_prob_diff:.6f}")
@@ -368,7 +368,7 @@ async def async_main():
     else:
         print("\nNo mismatches found in any samples!")
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
 
 
 def main():

@@ -5,7 +5,6 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from bs4 import BeautifulSoup
@@ -26,8 +25,8 @@ class TableData:
     """Class to hold table data and metadata about headers."""
 
     data: np.ndarray  # The actual table data
-    header_rows: Set[int] = field(default_factory=set)  # Indices of rows that are headers
-    header_cols: Set[int] = field(default_factory=set)  # Indices of columns that are headers
+    header_rows: set[int] = field(default_factory=set)  # Indices of rows that are headers
+    header_cols: set[int] = field(default_factory=set)  # Indices of columns that are headers
     col_headers: dict = field(default_factory=dict)  # Maps column index to header text, handling colspan
     row_headers: dict = field(default_factory=dict)  # Maps row index to header text, handling rowspan
 
@@ -52,7 +51,7 @@ class TableData:
         # Add a header for row indices
         output.append(separator)
         headers = [""] + [f"Column {i}" for i in range(self.data.shape[1])]
-        output.append("| {:<5} | ".format("Row") + " | ".join(["{:<15}".format(h) for h in headers[1:]]) + " |")
+        output.append(f"| {'Row':<5} | " + " | ".join([f"{h:<15}" for h in headers[1:]]) + " |")
         output.append(separator)
 
         # Format each row
@@ -68,7 +67,7 @@ class TableData:
                     cell = f"*{cell}*"
                 cells.append(cell)
 
-            row_str = "| {:<5} | ".format(i) + " | ".join(["{:<15}".format(c) for c in cells]) + " |"
+            row_str = f"| {i:<5} | " + " | ".join([f"{c:<15}" for c in cells]) + " |"
             output.append(row_str)
             output.append(separator)
 
@@ -110,8 +109,6 @@ class TestChecked(str, Enum):
 class ValidationError(Exception):
     """Exception raised for validation errors."""
 
-    pass
-
 
 def normalize_text(md_content: str) -> str:
     if md_content is None:
@@ -146,7 +143,7 @@ def normalize_text(md_content: str) -> str:
     return md_content
 
 
-def parse_markdown_tables(md_content: str) -> List[TableData]:
+def parse_markdown_tables(md_content: str) -> list[TableData]:
     """
     Extract and parse all markdown tables from the provided content.
     Uses a direct approach to find and parse tables, which is more robust for tables
@@ -255,7 +252,7 @@ def parse_markdown_tables(md_content: str) -> List[TableData]:
     return parsed_tables
 
 
-def _process_table_lines(table_lines: List[str]) -> List[List[str]]:
+def _process_table_lines(table_lines: list[str]) -> list[list[str]]:
     """
     Process a list of lines that potentially form a markdown table.
 
@@ -301,7 +298,7 @@ def _process_table_lines(table_lines: List[str]) -> List[List[str]]:
     return table_data
 
 
-def parse_html_tables(html_content: str) -> List[TableData]:
+def parse_html_tables(html_content: str) -> list[TableData]:
     """
     Extract and parse all HTML tables from the provided content.
     Identifies header rows and columns, and maps them properly handling rowspan/colspan.
@@ -489,8 +486,8 @@ class BasePDFTest:
     id: str
     type: str
     max_diffs: int = 0
-    checked: Optional[TestChecked] = None
-    url: Optional[str] = None
+    checked: TestChecked | None = None
+    url: str | None = None
 
     def __post_init__(self):
         if not self.pdf:
@@ -502,7 +499,7 @@ class BasePDFTest:
         if self.type not in {t.value for t in TestType}:
             raise ValidationError(f"Invalid test type: {self.type}")
 
-    def run(self, md_content: str) -> Tuple[bool, str]:
+    def run(self, md_content: str) -> tuple[bool, str]:
         """
         Run the test on the provided markdown content.
 
@@ -527,8 +524,8 @@ class TextPresenceTest(BasePDFTest):
 
     text: str
     case_sensitive: bool = True
-    first_n: Optional[int] = None
-    last_n: Optional[int] = None
+    first_n: int | None = None
+    last_n: int | None = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -538,7 +535,7 @@ class TextPresenceTest(BasePDFTest):
         if not self.text.strip():
             raise ValidationError("Text field cannot be empty")
 
-    def run(self, md_content: str) -> Tuple[bool, str]:
+    def run(self, md_content: str) -> tuple[bool, str]:
         reference_query = self.text
 
         # Normalize whitespace in the md_content
@@ -563,13 +560,13 @@ class TextPresenceTest(BasePDFTest):
             if best_ratio >= threshold:
                 return True, ""
             else:
-                msg = f"Expected '{reference_query[:40]}...' with threshold {threshold} " f"but best match ratio was {best_ratio:.3f}"
+                msg = f"Expected '{reference_query[:40]}...' with threshold {threshold} but best match ratio was {best_ratio:.3f}"
                 return False, msg
         else:  # ABSENT
             if best_ratio < threshold:
                 return True, ""
             else:
-                msg = f"Expected absence of '{reference_query[:40]}...' with threshold {threshold} " f"but best match ratio was {best_ratio:.3f}"
+                msg = f"Expected absence of '{reference_query[:40]}...' with threshold {threshold} but best match ratio was {best_ratio:.3f}"
                 return False, msg
 
 
@@ -599,7 +596,7 @@ class TextOrderTest(BasePDFTest):
         if self.max_diffs > len(self.before) // 2 or self.max_diffs > len(self.after) // 2:
             raise ValidationError("Max diffs is too large for this test, greater than 50% of the search string")
 
-    def run(self, md_content: str) -> Tuple[bool, str]:
+    def run(self, md_content: str) -> tuple[bool, str]:
         md_content = normalize_text(md_content)
 
         before_matches = find_near_matches(self.before, md_content, max_l_dist=self.max_diffs)
@@ -614,7 +611,7 @@ class TextOrderTest(BasePDFTest):
             for after_match in after_matches:
                 if before_match.start < after_match.start:
                     return True, ""
-        return False, (f"Could not find a location where '{self.before[:40]}...' appears before " f"'{self.after[:40]}...'.")
+        return False, (f"Could not find a location where '{self.before[:40]}...' appears before '{self.after[:40]}...'.")
 
 
 @dataclass
@@ -652,7 +649,7 @@ class TableTest(BasePDFTest):
         self.top_heading = normalize_text(self.top_heading)
         self.left_heading = normalize_text(self.left_heading)
 
-    def run(self, content: str) -> Tuple[bool, str]:
+    def run(self, content: str) -> tuple[bool, str]:
         """
         Run the table test on provided content.
 
@@ -906,7 +903,7 @@ class BaselineTest(BasePDFTest):
 
         for index, count in enumerate(repeats):
             if count > self.max_repeats:
-                return False, f"Text ends with {count} repeating {index+1}-grams, invalid"
+                return False, f"Text ends with {count} repeating {index + 1}-grams, invalid"
 
         pattern = re.compile(
             r"["
@@ -996,7 +993,7 @@ class MathTest(BasePDFTest):
         return False, f"No match found for {self.math} anywhere in content"
 
 
-def load_single_test(data: Union[str, Dict]) -> BasePDFTest:
+def load_single_test(data: str | Dict) -> BasePDFTest:
     """
     Load a single test from a JSON line string or JSON object.
 
@@ -1035,7 +1032,7 @@ def load_single_test(data: Union[str, Dict]) -> BasePDFTest:
     return test
 
 
-def load_tests(jsonl_file: str) -> List[BasePDFTest]:
+def load_tests(jsonl_file: str) -> list[BasePDFTest]:
     """
     Load tests from a JSONL file using parallel processing with a ThreadPoolExecutor.
 
@@ -1046,7 +1043,7 @@ def load_tests(jsonl_file: str) -> List[BasePDFTest]:
         A list of test objects.
     """
 
-    def process_line_with_number(line_tuple: Tuple[int, str]) -> Optional[Tuple[int, BasePDFTest]]:
+    def process_line_with_number(line_tuple: tuple[int, str]) -> tuple[int, BasePDFTest] | None:
         """
         Process a single line from the JSONL file and return a tuple of (line_number, test object).
         Returns None for empty lines.
@@ -1064,9 +1061,6 @@ def load_tests(jsonl_file: str) -> List[BasePDFTest]:
             raise
         except (ValidationError, KeyError) as e:
             print(f"Error on line {line_number}: {e}")
-            raise
-        except Exception as e:
-            print(f"Unexpected error on line {line_number}: {e}")
             raise
 
     tests = []
@@ -1096,7 +1090,7 @@ def load_tests(jsonl_file: str) -> List[BasePDFTest]:
     return tests
 
 
-def save_tests(tests: List[BasePDFTest], jsonl_file: str) -> None:
+def save_tests(tests: list[BasePDFTest], jsonl_file: str) -> None:
     """
     Save tests to a JSONL file using asdict for conversion.
 
@@ -1105,5 +1099,4 @@ def save_tests(tests: List[BasePDFTest], jsonl_file: str) -> None:
         jsonl_file: Path to the output JSONL file.
     """
     with open(jsonl_file, "w") as file:
-        for test in tests:
-            file.write(json.dumps(asdict(test)) + "\n")
+        file.write("".join(json.dumps(asdict(test)) + "\n" for test in tests))

@@ -12,7 +12,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
 
 import requests
 from tqdm import tqdm
@@ -46,7 +45,7 @@ def download_image(url: str, output_path: Path, max_retries: int = 3) -> bool:
                     if chunk:
                         f.write(chunk)
             return True
-        except Exception as e:
+        except (requests.RequestException, OSError) as e:
             print(f"Download attempt {attempt + 1} failed for {url}: {e}")
             if attempt < max_retries - 1:
                 # Exponential backoff: 2^attempt seconds (2, 4, 8, ...)
@@ -61,7 +60,7 @@ def convert_image_to_pdf(image_path: Path, pdf_path: Path) -> bool:
         with open(pdf_path, "wb") as f:
             f.write(convert_image_to_pdf_bytes(str(image_path)))
         return True
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"Failed to convert {image_path} to PDF: {e}")
         return False
 
@@ -83,7 +82,7 @@ def get_safe_filename(item_id: str) -> str:
     return safe_name
 
 
-def scan_existing_outputs(output_dir: Path) -> Set[str]:
+def scan_existing_outputs(output_dir: Path) -> set[str]:
     """Scan output directory to find all already processed assets."""
     processed_assets = set()
 
@@ -113,8 +112,8 @@ def scan_existing_outputs(output_dir: Path) -> Set[str]:
 
 
 def process_single_item(
-    row: Dict[str, str], dataset_output_dir: Path, skip_cleanup: bool, processed_lock: threading.Lock, processed_assets: Set[str]
-) -> Tuple[str, bool, Optional[str]]:
+    row: dict[str, str], dataset_output_dir: Path, skip_cleanup: bool, processed_lock: threading.Lock, processed_assets: set[str]
+) -> tuple[str, bool, str | None]:
     """Process a single row/item from the CSV. Returns (asset, success, error_msg)."""
 
     # Check required fields (Transcription can be empty)
@@ -166,11 +165,11 @@ def process_single_item(
         image_path = temp_dir / f"{safe_filename}_{threading.current_thread().ident}.jpg"
 
         if not download_image(download_url, image_path):
-            raise Exception(f"Failed to download image")
+            raise RuntimeError("Failed to download image")
 
         # Convert to PDF
         if not convert_image_to_pdf(image_path, pdf_path):
-            raise Exception(f"Failed to convert image to PDF")
+            raise RuntimeError("Failed to convert image to PDF")
 
         # Clean up transcription if needed (skipping for now)
         if skip_cleanup:
@@ -192,11 +191,11 @@ def process_single_item(
                 image_path.unlink(missing_ok=True)
                 return (asset, True, None)
             else:
-                raise Exception("PDF file is empty")
+                raise ValueError("PDF file is empty")
         else:
-            raise Exception("Output files were not created")
+            raise FileNotFoundError("Output files were not created")
 
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         # Clean up any partial files
         pdf_path.unlink(missing_ok=True)
         md_path.unlink(missing_ok=True)
@@ -205,7 +204,7 @@ def process_single_item(
         return (asset, False, str(e))
 
 
-def process_csv_file(csv_path: Path, output_dir: Path, processed_assets: Set[str], skip_cleanup: bool = True, max_workers: int = 1) -> None:
+def process_csv_file(csv_path: Path, output_dir: Path, processed_assets: set[str], skip_cleanup: bool = True, max_workers: int = 1) -> None:
     """Process a single CSV file containing LOC transcription data with parallel processing."""
     csv_name = csv_path.stem
     dataset_output_dir = output_dir / csv_name
@@ -223,7 +222,7 @@ def process_csv_file(csv_path: Path, output_dir: Path, processed_assets: Set[str
     already_done = 0
 
     for row in rows:
-        if "Asset" in row and row["Asset"]:
+        if row.get("Asset"):
             safe_filename = get_safe_filename(row["Asset"])
             if safe_filename not in processed_assets:
                 rows_to_process.append(row)
@@ -279,8 +278,8 @@ def process_csv_file(csv_path: Path, output_dir: Path, processed_assets: Set[str
             temp_file.unlink(missing_ok=True)
         try:
             temp_dir.rmdir()
-        except:
-            pass
+        except OSError as e:
+            print(f"Could not remove temporary directory {temp_dir}: {e}")
 
     print(f"Completed {csv_name}: {processed} total processed ({newly_processed} new), {skipped} skipped")
 

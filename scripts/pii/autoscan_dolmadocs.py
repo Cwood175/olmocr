@@ -6,7 +6,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import boto3
 import pydantic
@@ -94,7 +94,7 @@ class PIIAnnotation(pydantic.BaseModel):
         ]
         return any(pii_fields) or bool(self.other_pii.strip())
 
-    def get_pii_types(self) -> List[str]:
+    def get_pii_types(self) -> list[str]:
         """Get a list of all PII types found in the document"""
         pii_types = []
 
@@ -220,7 +220,7 @@ def get_random_pages(s3_client, result_files, count=30):
                 if len(random_pages) >= count:
                     break
 
-        except Exception as e:
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, KeyError, IndexError, OSError) as e:
             print(f"Error processing {result_file}: {e}")
             continue
 
@@ -228,7 +228,7 @@ def get_random_pages(s3_client, result_files, count=30):
     return random_pages
 
 
-def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> Optional[PIIAnnotation]:
+def chatgpt_analyze_page(pdf_path: str, page_num: int, pdf_s3_client, openai_api_key: str, openai_model: str) -> PIIAnnotation | None:
     """Analyze a page using the ChatGPT vision model with structured outputs."""
     try:
         # Download PDF to temp file and render to image
@@ -298,7 +298,7 @@ Only consider actual occurrences of the PII within the document shown.
 
         return completion.choices[0].message.parsed
 
-    except Exception as e:
+    except (OSError, ValueError, TypeError, KeyError, pydantic.ValidationError) as e:
         print(f"Error analyzing page {pdf_path} (page {page_num}): {e}")
         return None
 
@@ -309,7 +309,7 @@ def create_presigned_url(s3_client, pdf_path, expiration=3600 * 24 * 7):
         bucket, key = parse_s3_path(pdf_path)
         url = s3_client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expiration)
         return url
-    except Exception as e:
+    except (OSError, ValueError, TypeError, KeyError) as e:
         print(f"Error creating presigned URL for {pdf_path}: {e}")
         return None
 
@@ -349,7 +349,7 @@ def process_pages(random_pages, pdf_s3_client, openai_api_key, openai_model, max
                     results.append((pdf_path, page_num, page_text, result_file, annotation, presigned_url))
                 else:
                     print(f"Failed to get annotation for {pdf_path} (page {page_num})")
-            except Exception as e:
+            except (OSError, ValueError, TypeError, KeyError, RuntimeError) as e:
                 print(f"Error processing {pdf_path} (page {page_num}): {e}")
 
     return results
@@ -399,7 +399,7 @@ def categorize_results(all_results):
     return categories
 
 
-def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]]):
+def print_annotation_report(annotation_results: dict[str, list[dict[str, Any]]]):
     """Print a summary report of annotations."""
     total_pages = sum(len(items) for items in annotation_results.values())
 
@@ -418,24 +418,24 @@ def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]])
     # Print summary statistics
     print("\nSummary:")
     print(
-        f"  Public documents (total): {len(annotation_results['public_document'])} ({len(annotation_results['public_document'])/total_pages*100:.1f}% of all pages)"
+        f"  Public documents (total): {len(annotation_results['public_document'])} ({len(annotation_results['public_document']) / total_pages * 100:.1f}% of all pages)"
     )
-    print(f"    - With PII: {len(public_with_pii)} ({len(public_with_pii)/max(1, len(annotation_results['public_document']))*100:.1f}% of public docs)")
+    print(f"    - With PII: {len(public_with_pii)} ({len(public_with_pii) / max(1, len(annotation_results['public_document'])) * 100:.1f}% of public docs)")
     print(
-        f"    - Without PII: {len(public_without_pii)} ({len(public_without_pii)/max(1, len(annotation_results['public_document']))*100:.1f}% of public docs)"
+        f"    - Without PII: {len(public_without_pii)} ({len(public_without_pii) / max(1, len(annotation_results['public_document'])) * 100:.1f}% of public docs)"
     )
 
     print(
-        f"  Private documents (total): {len(annotation_results['private_document'])} ({len(annotation_results['private_document'])/total_pages*100:.1f}% of all pages)"
+        f"  Private documents (total): {len(annotation_results['private_document'])} ({len(annotation_results['private_document']) / total_pages * 100:.1f}% of all pages)"
     )
-    print(f"    - With PII: {len(private_with_pii)} ({len(private_with_pii)/max(1, len(annotation_results['private_document']))*100:.1f}% of private docs)")
+    print(f"    - With PII: {len(private_with_pii)} ({len(private_with_pii) / max(1, len(annotation_results['private_document'])) * 100:.1f}% of private docs)")
     print(
-        f"    - Without PII: {len(private_without_pii)} ({len(private_without_pii)/max(1, len(annotation_results['private_document']))*100:.1f}% of private docs)"
+        f"    - Without PII: {len(private_without_pii)} ({len(private_without_pii) / max(1, len(annotation_results['private_document'])) * 100:.1f}% of private docs)"
     )
 
-    print(f"  Unreadable pages: {len(annotation_results['cannot_read'])} ({len(annotation_results['cannot_read'])/total_pages*100:.1f}%)")
-    print(f"  Pages with reported content: {len(annotation_results['report_content'])} ({len(annotation_results['report_content'])/total_pages*100:.1f}%)")
-    print(f"  Pages without annotation: {len(annotation_results['no_annotation'])} ({len(annotation_results['no_annotation'])/total_pages*100:.1f}%)")
+    print(f"  Unreadable pages: {len(annotation_results['cannot_read'])} ({len(annotation_results['cannot_read']) / total_pages * 100:.1f}%)")
+    print(f"  Pages with reported content: {len(annotation_results['report_content'])} ({len(annotation_results['report_content']) / total_pages * 100:.1f}%)")
+    print(f"  Pages without annotation: {len(annotation_results['no_annotation'])} ({len(annotation_results['no_annotation']) / total_pages * 100:.1f}%)")
 
     # Analyze PII types in private documents
     if private_with_pii:
@@ -461,15 +461,15 @@ def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]])
             for pii_type in pii_types:
                 count = pii_counts_private.get(pii_type, 0)
                 if count > 0:
-                    print(f"    - {pii_type}: {count} ({count/len(private_with_pii)*100:.1f}%)")
+                    print(f"    - {pii_type}: {count} ({count / len(private_with_pii) * 100:.1f}%)")
 
         # Print any other PII types not in our categories (like "other")
-        other_pii = [pii_type for pii_type in pii_counts_private.keys() if not any(pii_type in types for types in pii_categories.values())]
+        other_pii = [pii_type for pii_type in pii_counts_private if not any(pii_type in types for types in pii_categories.values())]
         if other_pii:
             print("\n  Other PII types:")
             for pii_type in other_pii:
                 count = pii_counts_private.get(pii_type, 0)
-                print(f"    - {pii_type}: {count} ({count/len(private_with_pii)*100:.1f}%)")
+                print(f"    - {pii_type}: {count} ({count / len(private_with_pii) * 100:.1f}%)")
 
     # Print detailed report for private documents with PII
     if private_with_pii:

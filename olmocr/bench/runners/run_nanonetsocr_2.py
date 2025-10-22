@@ -24,8 +24,8 @@ def render_pdf_to_base64png_min_short_size(local_pdf_path: str, page_num: int, t
             local_pdf_path,
         ],
         timeout=120,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
+        check=False,
     )
     assert pdftoppm_result.returncode == 0, pdftoppm_result.stderr
     return base64.b64encode(pdftoppm_result.stdout).decode("utf-8")

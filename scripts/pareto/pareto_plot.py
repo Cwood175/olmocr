@@ -9,7 +9,7 @@ import argparse
 import os
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
+import matplotlib.ticker
 import pandas as pd
 from matplotlib import font_manager
 
@@ -184,7 +184,7 @@ def percent_formatter(y, pos):
     return f"{y:.1f}%"
 
 
-plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(percent_formatter))
+plt.gca().yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(percent_formatter))
 
 
 # Format x-axis to show dollar amounts
@@ -193,7 +193,7 @@ def dollar_formatter(x, pos):
 
 
 # Set specific x-axis ticks with increased font size
-plt.gca().xaxis.set_major_formatter(ticker.FuncFormatter(dollar_formatter))
+plt.gca().xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(dollar_formatter))
 plt.gca().set_xticks([100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000])
 plt.xticks(fontsize=12)  # Increased tick font size
 plt.yticks(fontsize=12)  # Increased tick font size
@@ -215,7 +215,14 @@ ordered_handles = [label_to_handle[label] for label in desired_order if label in
 ordered_labels = [label for label in desired_order if label in labels]
 
 plt.legend(
-    ordered_handles, ordered_labels, loc="lower right", fontsize=12, frameon=True, framealpha=0.9, edgecolor=TEAL, facecolor="white"  # Increased from 10
+    ordered_handles,
+    ordered_labels,
+    loc="lower right",
+    fontsize=12,
+    frameon=True,
+    framealpha=0.9,
+    edgecolor=TEAL,
+    facecolor="white",  # Increased from 10
 )
 
 # Adjust layout

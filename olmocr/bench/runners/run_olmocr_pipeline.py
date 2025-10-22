@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 # Import necessary components from olmocr
 from olmocr.pipeline import (
@@ -39,7 +38,7 @@ class Args:
 server_check_lock = asyncio.Lock()
 
 
-async def run_olmocr_pipeline(pdf_path: str, page_num: int = 1, model: str = "allenai/olmOCR-2-7B-1025-FP8") -> Optional[str]:
+async def run_olmocr_pipeline(pdf_path: str, page_num: int = 1, model: str = "allenai/olmOCR-2-7B-1025-FP8") -> str | None:
     """
     Process a single page of a PDF using the official olmocr pipeline's process_page function
 
@@ -68,7 +67,7 @@ async def run_olmocr_pipeline(pdf_path: str, page_num: int = 1, model: str = "al
         try:
             await asyncio.wait_for(vllm_server_ready(args), timeout=5)
             logger.info("Using existing vllm server")
-        except Exception:
+        except (OSError, RuntimeError):
             logger.info("Starting new vllm server")
             _server_task = asyncio.create_task(vllm_server_host(args.model, args, semaphore))
             await vllm_server_ready(args)
@@ -87,8 +86,8 @@ async def run_olmocr_pipeline(pdf_path: str, page_num: int = 1, model: str = "al
             return page_result.response.natural_text
         return None
 
-    except Exception as e:
-        logger.error(f"Error processing page: {type(e).__name__} - {str(e)}")
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.error(f"Error processing page: {type(e).__name__} - {e!s}")
         return None
 
     finally:

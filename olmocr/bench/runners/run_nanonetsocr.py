@@ -47,7 +47,7 @@ async def run_nanonetsocr(pdf_path: str, page_num: int = 1, model_path: str = "n
         str: The OCR result in markdown format.
     """
 
-    model, tokenizer, processor = load_model(model_path)
+    model, _, processor = load_model(model_path)
 
     image_base64 = render_pdf_to_base64png(pdf_path, page_num=page_num, target_longest_image_dim=1024)
 
@@ -85,5 +85,5 @@ async def run_nanonetsocr(pdf_path: str, page_num: int = 1, model_path: str = "n
     finally:
         try:
             os.unlink(temp_image_path)
-        except Exception as e:
+        except OSError as e:
             print(f"Warning: Failed to remove temporary file {temp_image_path}: {e}")

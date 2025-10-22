@@ -22,6 +22,7 @@ def run_mistral(pdf_path: str, page_num: int = 1) -> str:
     api_key = os.environ["MISTRAL_API_KEY"]
     client = Mistral(api_key=api_key)
 
+    temp_file_path = None
     if page_num > 0:  # If a specific page is requested
         reader = PdfReader(pdf_path)
 
@@ -35,13 +36,11 @@ def run_mistral(pdf_path: str, page_num: int = 1) -> str:
         writer.add_page(reader.pages[page_num - 1])
 
         # Save the extracted page to a temporary file
-        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        temp_file.close()  # Close the file but keep the name
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+            writer.write(temp_file)
+            temp_file_path = temp_file.name
 
-        with open(temp_file.name, "wb") as output_pdf:
-            writer.write(output_pdf)
-
-        pdf_to_process = temp_file.name
+        pdf_to_process = temp_file_path
     else:
         pdf_to_process = pdf_path
 
@@ -70,5 +69,5 @@ def run_mistral(pdf_path: str, page_num: int = 1) -> str:
         return ocr_response.pages[0].markdown
     finally:
         # Clean up the temporary file if it was created
-        if temp_file and os.path.exists(temp_file.name):
-            os.unlink(temp_file.name)
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)

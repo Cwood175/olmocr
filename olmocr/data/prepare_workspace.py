@@ -15,11 +15,12 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PyPdfError
 from tqdm import tqdm
 
 from olmocr.s3_utils import parse_s3_path
@@ -52,7 +53,7 @@ def fetch_s3_file(s3_url: str, local_path: str) -> str:
     return local_path
 
 
-def list_s3_result_files(s3_client, workspace_path: str) -> List[str]:
+def list_s3_result_files(s3_client, workspace_path: str) -> list[str]:
     """List all JSONL files in the S3 workspace results directory."""
     bucket, prefix = parse_s3_path(workspace_path)
     results_prefix = os.path.join(prefix, "results").rstrip("/") + "/"
@@ -74,7 +75,7 @@ def download_s3_file(s3_client, s3_path: str) -> str:
     return response["Body"].read().decode("utf-8")
 
 
-def load_jsonl_files(results_dir: Path) -> List[Path]:
+def load_jsonl_files(results_dir: Path) -> list[Path]:
     """Load all JSONL files from the workspace results directory."""
     jsonl_files = list(results_dir.glob("*.jsonl"))
     if not jsonl_files:
@@ -85,7 +86,7 @@ def load_jsonl_files(results_dir: Path) -> List[Path]:
     return jsonl_files
 
 
-def parse_jsonl_entry(entry: Dict) -> Optional[Dict]:
+def parse_jsonl_entry(entry: dict) -> dict | None:
     """Parse a single JSONL entry and extract relevant information."""
     try:
         text = entry.get("text", "")
@@ -115,12 +116,12 @@ def parse_jsonl_entry(entry: Dict) -> Optional[Dict]:
             "pdf_page_numbers": pdf_page_numbers,
             "page_response_data": page_response_data,
         }
-    except Exception as e:
+    except (AttributeError, TypeError) as e:
         logger.error(f"Error parsing JSONL entry: {e}")
         return None
 
 
-def extract_page_text(text: str, page_boundaries: List[List[int]]) -> Dict[int, str]:
+def extract_page_text(text: str, page_boundaries: list[list[int]]) -> dict[int, str]:
     """
     Extract text for each page based on character boundaries.
 
@@ -171,12 +172,12 @@ def extract_pdf_page(pdf_path: str, page_num: int, output_path: str) -> bool:
             writer.write(f)
 
         return True
-    except Exception as e:
+    except (OSError, PyPdfError, ValueError) as e:
         logger.error(f"Error extracting page {page_num} from {pdf_path}: {e}")
         return False
 
 
-def process_document(entry_data: Dict, output_dir: Path, cache_dir: Path) -> Tuple[int, int]:
+def process_document(entry_data: dict, output_dir: Path, cache_dir: Path) -> tuple[int, int]:
     """
     Process a single document: extract pages and create markdown files.
 
@@ -206,7 +207,7 @@ def process_document(entry_data: Dict, output_dir: Path, cache_dir: Path) -> Tup
             try:
                 logger.info(f"Downloading {source_file} to cache")
                 fetch_s3_file(source_file, local_pdf_path)
-            except Exception as e:
+            except (BotoCoreError, ClientError, OSError) as e:
                 logger.error(f"Failed to download {source_file}: {e}")
                 return 0, len(page_texts)
         else:
@@ -264,9 +265,7 @@ def process_document(entry_data: Dict, output_dir: Path, cache_dir: Path) -> Tup
                             f.write(f"{column}: true\n")
                         elif column == "rotation_correction":
                             f.write(f"{column}: 0\n")
-                        elif column == "is_table":
-                            f.write(f"{column}: false\n")
-                        elif column == "is_diagram":
+                        elif column in {"is_table", "is_diagram"}:
                             f.write(f"{column}: false\n")
 
                 # Handle closing delimiter based on whether text exists
@@ -287,14 +286,14 @@ def process_document(entry_data: Dict, output_dir: Path, cache_dir: Path) -> Tup
                 # Remove the markdown file if PDF extraction failed
                 os.remove(md_path)
 
-        except Exception as e:
+        except (AttributeError, IndexError, OSError, TypeError, ValueError) as e:
             logger.error(f"Error processing page {page_num} of document {doc_id}: {e}")
             failed += 1
 
     return successful, failed
 
 
-def process_workspace(workspace_path: str, output_dir: Path, max_examples: Optional[int] = None) -> None:
+def process_workspace(workspace_path: str, output_dir: Path, max_examples: int | None = None) -> None:
     """
     Process all JSONL files in the workspace and create training data.
 
@@ -339,7 +338,7 @@ def process_workspace(workspace_path: str, output_dir: Path, max_examples: Optio
                             all_entries.append(parsed_entry)
                     except json.JSONDecodeError as e:
                         logger.error(f"JSON decode error in {s3_file}: {e}")
-            except Exception as e:
+            except (BotoCoreError, ClientError, OSError, UnicodeDecodeError) as e:
                 logger.error(f"Error reading {s3_file}: {e}")
     else:
         # Local workspace
