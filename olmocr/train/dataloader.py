@@ -352,8 +352,7 @@ class FrontMatterOutputFormat(PipelineStep):
         page_data = sample["page_data"]
         assert type(page_data) is PageResponse
 
-        sample["response"] = (
-            f"""---
+        sample["response"] = f"""---
 primary_language: {page_data.primary_language}
 is_rotation_valid: {page_data.is_rotation_valid}
 rotation_correction: {page_data.rotation_correction}
@@ -362,7 +361,6 @@ is_diagram: {page_data.is_diagram}
 ---
 {page_data.natural_text if page_data.natural_text is not None and len(page_data.natural_text.strip()) > 0 else ""}
 """.strip()
-        )
 
         return sample
 
@@ -567,10 +565,10 @@ class AugraphyBasicAugmentations(PipelineStep):
             height, width = image_bgr.shape[:2]
 
             # Random parameters for geometric transformations
-            angle = max(min(np.random.standard_normal(), 3), -3)  # Small rotation range
-            scale = np.random.uniform(0.95, 1.05)  # Small scale range
-            tx = np.random.uniform(-0.02, 0.02) * width  # Translation as fraction of width
-            ty = np.random.uniform(-0.02, 0.02) * height  # Translation as fraction of height
+            angle = max(min(np.random.standard_normal(), 3), -3)
+            scale = np.random.uniform(0.95, 1.05)
+            tx = np.random.uniform(-0.02, 0.02) * width
+            ty = np.random.uniform(-0.02, 0.02) * height
 
             # Calculate center point
             center = (width / 2, height / 2)
@@ -593,7 +591,16 @@ class AugraphyBasicAugmentations(PipelineStep):
             )
 
         ink_phase = [
-            OneOf([InkBleed(p=1), LowInkRandomLines(p=1), LowInkPeriodicLines(p=1), InkMottling(p=1), InkShifter(p=1, text_shift_scale_range=(10, 15))], p=0.2),
+            OneOf(
+                [
+                    InkBleed(p=1),
+                    LowInkRandomLines(p=1),
+                    LowInkPeriodicLines(p=1),
+                    InkMottling(p=1),
+                    InkShifter(p=1, text_shift_scale_range=(10, 15)),
+                ],
+                p=0.2,
+            ),
         ]
 
         paper_phase = [OneOf([Brightness(p=0.2), Jpeg(p=1)])]

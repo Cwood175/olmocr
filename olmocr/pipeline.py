@@ -736,8 +736,9 @@ async def vllm_server_host(model_name_or_path, args, semaphore, unknown_args=Non
 async def vllm_server_ready(args):
     max_attempts = 300
     delay_sec = 1
-    if args.server:
-        url = f"{args.server.rstrip('/')}/v1/models"
+    server = getattr(args, "server", None)
+    if server:
+        url = f"{server.rstrip('/')}/v1/models"
     else:
         url = f"http://localhost:{BASE_SERVER_PORT}/v1/models"
 
@@ -1076,7 +1077,9 @@ async def main():
     vllm_group.add_argument("--data-parallel-size", "-dp", type=int, default=1, help="Data parallel size for vLLM")
     vllm_group.add_argument("--port", type=int, default=30024, help="Port to use for the VLLM server")
     vllm_group.add_argument(
-        "--server", type=str, help="URL of external vLLM (or other compatible provider) server (e.g., http://hostname:port). If provided, skips spawning local vLLM instance"
+        "--server",
+        type=str,
+        help="URL of external vLLM (or other compatible provider) server (e.g., http://hostname:port). If provided, skips spawning local vLLM instance",
     )
 
     # Beaker/job running stuff
@@ -1092,6 +1095,7 @@ async def main():
     beaker_group.add_argument("--beaker_priority", type=str, default="normal", help="Beaker priority level for the job")
 
     args, unknown_args = parser.parse_known_args()
+    server = getattr(args, "server", None)
 
     logger.info(
         "If you run out of GPU memory during start-up or get 'KV cache is larger than available memory' errors, retry with lower values, e.g. --gpu_memory_utilization 0.80  --max_model_len 16384"
@@ -1216,14 +1220,14 @@ async def main():
 
     # If you get this far, then you are doing inference and need a GPU
     # check_sglang_version()
-    if not args.server:
+    if not server:
         check_torch_gpu_available()
 
     logger.info(f"Starting pipeline with PID {os.getpid()}")
 
     # Download the model before you do anything else
-    if args.server:
-        logger.info(f"Using external server at {args.server}")
+    if server:
+        logger.info(f"Using external server at {server}")
         model_name_or_path = None
     else:
         model_name_or_path = await download_model(args.model)
@@ -1242,7 +1246,7 @@ async def main():
 
     # Start local vLLM instance if not using external one
     vllm_server = None
-    if not args.server:
+    if not server:
         vllm_server = asyncio.create_task(vllm_server_host(model_name_or_path, args, semaphore, unknown_args))
 
     await vllm_server_ready(args)

@@ -77,12 +77,15 @@ def generate_html_from_image(client, image_base64):
                         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_base64}},
                         {
                             "type": "text",
-                            "text": "Analyze this document and provide a detailed assessment of its structure. Focus specifically on:\n"
-                            "1. How many columns does the document have? Is it single-column, two-column, three-column, or a mixed layout?\n"
-                            "2. What are the main sections and content types (headings, paragraphs, lists, tables, images, etc.)?\n"
-                            "3. Does it have headers, footers, page numbers, or other special elements?\n"
-                            "4. Is there any complex formatting that would be challenging to reproduce in HTML?\n\n"
-                            "Please be very precise about the number of columns and how they're arranged.",
+                            "text": (
+                                """Analyze this document and provide a detailed assessment of its structure. Focus specifically on:
+1. How many columns does the document have? Is it single-column, two-column, three-column, or a mixed layout?
+2. What are the main sections and content types (headings, paragraphs, lists, tables, images, etc.)?
+3. Does it have headers, footers, page numbers, or other special elements?
+4. Is there any complex formatting that would be challenging to reproduce in HTML?
+
+Please be very precise about the number of columns and how they're arranged."""
+                            ),
                         },
                     ],
                 }
