@@ -7,6 +7,7 @@ this script issues a model prompt completion
 collects the yes/no answers, and writes corresponding Dolma attributes JSONL files under
 scratch/attributes/, mirroring the input structure.
 """
+
 import argparse
 import asyncio
 import atexit
@@ -171,7 +172,7 @@ async def _process_single_page(page_text: str) -> PIIClassification:
 # It feels strange perhaps, but httpx and aiohttp are very complex beasts
 # Ex. the sessionpool in httpcore has 4 different locks in it, and I've noticed
 # that at the scale of 100M+ requests, that they deadlock in different strange ways
-async def apost(url, json_data):
+async def apost(url, json_data, api_key=None, **kwargs):
     parsed_url = urlparse(url)
     host = parsed_url.hostname
     port = parsed_url.port or 80

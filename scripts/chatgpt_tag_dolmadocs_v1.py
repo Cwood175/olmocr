@@ -7,6 +7,7 @@ This script combines the functionality of autoscan_dolmadocs.py and rich_tagging
 2. Creates attribute folders mirroring the document structure
 3. Simplifies with direct ThreadPoolExecutor usage instead of work queue system
 """
+
 import argparse
 import gzip
 import json
@@ -548,8 +549,16 @@ def save_results(results, output_dir):
             continue
         serializable_results.append(result)
 
+    def _enum_default(o):
+        return o.value if isinstance(o, Enum) else o
+
     with open(output_path, "w") as f:
-        json.dump(serializable_results, f, indent=2, default=lambda o: o.value if isinstance(o, Enum) else o)
+        json.dump(
+            serializable_results,
+            f,
+            indent=2,
+            default=_enum_default,
+        )
 
     print(f"Results saved to {output_path}")
 

@@ -85,10 +85,25 @@ pdf_s3 = boto3.client("s3")
 metrics = MetricsKeeper(window=60 * 5)
 tracker = WorkerTracker()
 
-pdf_render_max_workers = asyncio.BoundedSemaphore(int(float(os.environ.get("BEAKER_ASSIGNED_CPU_COUNT", max(1, multiprocessing.cpu_count() - 2)))))
+pdf_render_max_workers = asyncio.BoundedSemaphore(
+    int(
+        float(
+            os.environ.get(
+                "BEAKER_ASSIGNED_CPU_COUNT",
+                max(1, multiprocessing.cpu_count() - 2),
+            )
+        )
+    )
+)
 
 # Filter object, cached so it will only get loaded when/if you need it
-get_pdf_filter = cache(lambda: PdfFilter(languages_to_keep={Language.ENGLISH, None}, apply_download_spam_check=True, apply_form_check=True))
+get_pdf_filter = cache(
+    lambda: PdfFilter(
+        languages_to_keep={Language.ENGLISH, None},
+        apply_download_spam_check=True,
+        apply_form_check=True,
+    )
+)
 
 # Specify a default port, but it can be overridden by args
 BASE_SERVER_PORT = 30024
@@ -280,7 +295,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
                 api_key = args.api_key
             else:
                 api_key = None
-            status_code, response_body = await apost(COMPLETION_URL, json_data=query, api_key=api_key)
+            status_code, response_body = await apost(COMPLETION_URL, query, api_key)
 
             if status_code == 400:
                 raise ValueError(f"Got BadRequestError from server: {response_body}, skipping this response")
