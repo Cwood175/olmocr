@@ -10,7 +10,7 @@ import sqlite3
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import boto3
 import requests
@@ -71,7 +71,7 @@ def deobfuscate_code(obfuscated_code):
         return "ERROR_DECODING"
 
 
-def parse_pdf_hash(pretty_pdf_path: str) -> Optional[str]:
+def parse_pdf_hash(pretty_pdf_path: str) -> str | None:
     pattern = r"s3://ai2-s2-pdfs/([a-f0-9]{4})/([a-f0-9]+)\.pdf"
     match = re.match(pattern, pretty_pdf_path)
     if match:
@@ -79,7 +79,7 @@ def parse_pdf_hash(pretty_pdf_path: str) -> Optional[str]:
     return None
 
 
-def get_original_url(pdf_hash: str, db_path: str) -> Optional[str]:
+def get_original_url(pdf_hash: str, db_path: str) -> str | None:
     """Look up the original URL for a PDF hash in the SQLite database."""
     if not pdf_hash:
         return None
@@ -101,7 +101,7 @@ def get_original_url(pdf_hash: str, db_path: str) -> Optional[str]:
         if result:
             return result[0]
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error looking up URL for PDF hash {pdf_hash}: {e}")
         return None
 
@@ -184,7 +184,7 @@ def get_random_pages(s3_client, result_files, count=30):
                 if len(random_pages) >= count:
                     break
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error processing {result_file}: {e}")
             continue
 
@@ -209,7 +209,7 @@ def create_html_output(random_pages, pdf_s3_client, output_path, workspace_path,
     obfuscated_code = obfuscate_code(prolific_code)
 
     # Get current date and time for the report
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
 
     html_content = f"""
     <!DOCTYPE html>
@@ -958,7 +958,7 @@ def create_html_output(random_pages, pdf_s3_client, output_path, workspace_path,
                         Status: <span class="annotation-status status-pending" id="status-{i}">Pending</span>
                     </p>
                 </div>
-                <div class="error">Error: {str(e)}</div>
+                <div class="error">Error: {e!s}</div>
                 <div class="annotation-interface{active_class}" data-id="page-{i}" data-pdf-path="{pdf_path}" data-pdf-page="{page_num}">
                     <div class="question-container" id="question1-{i}">
                         <p class="question-text">Is this document intended for public release or dissemination?</p>
@@ -1557,9 +1557,9 @@ def create_html_output(random_pages, pdf_s3_client, output_path, workspace_path,
 
 def generate_sample_set(args, i, s3_client, pdf_s3_client, result_files):
     """Generate a single sample set."""
-    output_filename = Path(args.output_dir) / f"dolma_samples_{i+1}.html"
+    output_filename = Path(args.output_dir) / f"dolma_samples_{i + 1}.html"
 
-    print(f"\nGenerating sample set {i+1} of {args.repeats}")
+    print(f"\nGenerating sample set {i + 1} of {args.repeats}")
 
     # Get random pages
     random_pages = get_random_pages(s3_client, result_files, args.pages_per_output)
@@ -1573,7 +1573,7 @@ def generate_sample_set(args, i, s3_client, pdf_s3_client, result_files):
     return output_filename
 
 
-def extract_datastore_url(html_content: str) -> Optional[str]:
+def extract_datastore_url(html_content: str) -> str | None:
     """Extract the presigned datastore URL from HTML content."""
     match = re.search(r'const\s+presignedGetUrl\s*=\s*"([^"]+)"', html_content)
     if match:
@@ -1581,7 +1581,7 @@ def extract_datastore_url(html_content: str) -> Optional[str]:
     return None
 
 
-def extract_page_number_from_html(html_content: str, page_id: str) -> Optional[int]:
+def extract_page_number_from_html(html_content: str, page_id: str) -> int | None:
     """Extract PDF page number from HTML content for a specific page_id.
 
     This is a fallback mechanism for older versions of the annotation page
@@ -1611,7 +1611,7 @@ def extract_page_number_from_html(html_content: str, page_id: str) -> Optional[i
     return None
 
 
-def fetch_annotations(tinyhost_link: str) -> Tuple[Dict[str, Any], str, str]:
+def fetch_annotations(tinyhost_link: str) -> tuple[dict[str, Any], str, str]:
     """Fetch and parse annotations from a tinyhost link."""
     # Request the HTML content
     print(f"Fetching annotations from {tinyhost_link}")
@@ -1637,7 +1637,7 @@ def fetch_annotations(tinyhost_link: str) -> Tuple[Dict[str, Any], str, str]:
         return {}, tinyhost_link, html_content
 
 
-def process_annotations(annotations_by_link: List[Tuple[Dict[str, Any], str, str]]) -> Dict[str, List[Dict[str, Any]]]:
+def process_annotations(annotations_by_link: list[tuple[dict[str, Any], str, str]]) -> dict[str, list[dict[str, Any]]]:
     """Process and categorize annotations by feedback type."""
     results = {
         "public_document": [],
@@ -1741,7 +1741,7 @@ def process_annotations(annotations_by_link: List[Tuple[Dict[str, Any], str, str
     return results
 
 
-def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]], pdf_s3_client=None):
+def print_annotation_report(annotation_results: dict[str, list[dict[str, Any]]], pdf_s3_client=None):
     """Print a summary report of annotations."""
     total_pages = sum(len(items) for items in annotation_results.values())
 
@@ -1760,24 +1760,24 @@ def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]],
     # Print summary statistics
     print("\nSummary:")
     print(
-        f"  Public documents (total): {len(annotation_results['public_document'])} ({len(annotation_results['public_document'])/total_pages*100:.1f}% of all pages)"
+        f"  Public documents (total): {len(annotation_results['public_document'])} ({len(annotation_results['public_document']) / total_pages * 100:.1f}% of all pages)"
     )
-    print(f"    - With PII: {len(public_with_pii)} ({len(public_with_pii)/max(1, len(annotation_results['public_document']))*100:.1f}% of public docs)")
+    print(f"    - With PII: {len(public_with_pii)} ({len(public_with_pii) / max(1, len(annotation_results['public_document'])) * 100:.1f}% of public docs)")
     print(
-        f"    - Without PII: {len(public_without_pii)} ({len(public_without_pii)/max(1, len(annotation_results['public_document']))*100:.1f}% of public docs)"
+        f"    - Without PII: {len(public_without_pii)} ({len(public_without_pii) / max(1, len(annotation_results['public_document'])) * 100:.1f}% of public docs)"
     )
 
     print(
-        f"  Private documents (total): {len(annotation_results['private_document'])} ({len(annotation_results['private_document'])/total_pages*100:.1f}% of all pages)"
+        f"  Private documents (total): {len(annotation_results['private_document'])} ({len(annotation_results['private_document']) / total_pages * 100:.1f}% of all pages)"
     )
-    print(f"    - With PII: {len(private_with_pii)} ({len(private_with_pii)/max(1, len(annotation_results['private_document']))*100:.1f}% of private docs)")
+    print(f"    - With PII: {len(private_with_pii)} ({len(private_with_pii) / max(1, len(annotation_results['private_document'])) * 100:.1f}% of private docs)")
     print(
-        f"    - Without PII: {len(private_without_pii)} ({len(private_without_pii)/max(1, len(annotation_results['private_document']))*100:.1f}% of private docs)"
+        f"    - Without PII: {len(private_without_pii)} ({len(private_without_pii) / max(1, len(annotation_results['private_document'])) * 100:.1f}% of private docs)"
     )
 
-    print(f"  Unreadable pages: {len(annotation_results['cannot_read'])} ({len(annotation_results['cannot_read'])/total_pages*100:.1f}%)")
-    print(f"  Pages with reported content: {len(annotation_results['report_content'])} ({len(annotation_results['report_content'])/total_pages*100:.1f}%)")
-    print(f"  Pages without annotation: {len(annotation_results['no_annotation'])} ({len(annotation_results['no_annotation'])/total_pages*100:.1f}%)")
+    print(f"  Unreadable pages: {len(annotation_results['cannot_read'])} ({len(annotation_results['cannot_read']) / total_pages * 100:.1f}%)")
+    print(f"  Pages with reported content: {len(annotation_results['report_content'])} ({len(annotation_results['report_content']) / total_pages * 100:.1f}%)")
+    print(f"  Pages without annotation: {len(annotation_results['no_annotation'])} ({len(annotation_results['no_annotation']) / total_pages * 100:.1f}%)")
 
     # With the updated flow, there should be no public documents with PII flags
     # as we don't collect PII information for public documents anymore
@@ -1809,15 +1809,15 @@ def print_annotation_report(annotation_results: Dict[str, List[Dict[str, Any]]],
             for pii_type in pii_types:
                 count = pii_counts_private.get(pii_type, 0)
                 if count > 0:
-                    print(f"    - {pii_type}: {count} ({count/len(private_with_pii)*100:.1f}%)")
+                    print(f"    - {pii_type}: {count} ({count / len(private_with_pii) * 100:.1f}%)")
 
         # Print any other PII types not in our categories (like "other")
-        other_pii = [pii_type for pii_type in pii_counts_private.keys() if not any(pii_type in types for types in pii_categories.values())]
+        other_pii = [pii_type for pii_type in pii_counts_private if not any(pii_type in types for types in pii_categories.values())]
         if other_pii:
             print("\n  Other PII types:")
             for pii_type in other_pii:
                 count = pii_counts_private.get(pii_type, 0)
-                print(f"    - {pii_type}: {count} ({count/len(private_with_pii)*100:.1f}%)")
+                print(f"    - {pii_type}: {count} ({count / len(private_with_pii) * 100:.1f}%)")
 
     # With the updated flow, there should be no public documents with PII flags
     # so we can remove this section
@@ -1887,7 +1887,7 @@ def read_and_process_results(args):
             try:
                 annotations, link_url, html_content = fetch_annotations(link)
                 annotations_by_link.append((annotations, link_url, html_content))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Error processing {link}: {e}")
 
         # Process and categorize annotations
@@ -2001,7 +2001,7 @@ def main():
                     output_filename = future.result()
                     output_files.append(output_filename)
                     print(f"Completed generation of {output_filename}")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     print(f"Error generating sample set: {e}")
     else:
         # If only one repeat, just run it directly

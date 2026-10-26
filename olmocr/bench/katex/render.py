@@ -23,7 +23,7 @@ import unittest
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -32,7 +32,7 @@ from playwright.sync_api import sync_playwright
 
 
 class EquationCache:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         if db_path is None:
             # Use the same cache directory as before
             cache_dir = pathlib.Path.home() / ".cache" / "olmocr" / "bench" / "equations"
@@ -145,8 +145,8 @@ class SpanInfo:
 @dataclass
 class RenderedEquation:
     mathml: str
-    spans: List[SpanInfo]
-    error: Optional[str] = None  # New field to store error messages if rendering fails
+    spans: list[SpanInfo]
+    error: str | None = None  # New field to store error messages if rendering fails
 
 
 def get_equation_hash(equation, bg_color="white", text_color="black", font_size=24):
@@ -438,7 +438,7 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
                 return "".join(inner_parts)
             else:
                 return str(soup)
-        except Exception as e:
+        except (ValueError, TypeError, SyntaxError) as e:
             print("Error parsing MathML with BeautifulSoup:", e)
             print(mathml)
             return mathml
@@ -554,8 +554,6 @@ def compare_rendered_equations(reference: RenderedEquation, hypothesis: Rendered
         return False
 
     return backtrack(0)
-
-
 
 
 if __name__ == "__main__":

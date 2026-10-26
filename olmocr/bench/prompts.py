@@ -1,5 +1,5 @@
 def build_basic_prompt() -> str:
-    return "Please provide a natural, plain text representation of the document, formatted in Markdown. Skip any headers and footers. For ALL mathematical expressions, use LaTeX notation with \( and \) for inline equations and \[ and \] for display equations. Convert any tables into Markdown format."
+    return r"Please provide a natural, plain text representation of the document, formatted in Markdown. Skip any headers and footers. For ALL mathematical expressions, use LaTeX notation with \( and \) for inline equations and \[ and \] for display equations. Convert any tables into Markdown format."
 
 
 def build_openai_silver_data_prompt_no_document_anchoring(_base_text: str) -> str:

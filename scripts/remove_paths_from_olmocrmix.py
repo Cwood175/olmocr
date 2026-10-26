@@ -17,13 +17,13 @@
 import argparse
 import re
 import shutil
+import sys
 from pathlib import Path
-from typing import Set, Tuple
 
 from tqdm import tqdm
 
 
-def parse_deny_list(deny_list_file: Path) -> Set[Tuple[str, str]]:
+def parse_deny_list(deny_list_file: Path) -> set[tuple[str, str]]:
     """Parse deny list file and extract subdirectory and base filename patterns."""
     patterns = set()
 
@@ -46,7 +46,7 @@ def parse_deny_list(deny_list_file: Path) -> Set[Tuple[str, str]]:
     return patterns
 
 
-def find_matching_files(processed_dir: Path, deny_patterns: Set[Tuple[str, str]]) -> list[Path]:
+def find_matching_files(processed_dir: Path, deny_patterns: set[tuple[str, str]]) -> list[Path]:
     """Find all files that match the deny patterns."""
     matching_files = []
 
@@ -78,7 +78,7 @@ def find_matching_files(processed_dir: Path, deny_patterns: Set[Tuple[str, str]]
                     # Check if this (subdir, base_filename) pair is in our deny set
                     if (subdir, base_filename) in deny_patterns:
                         matching_files.append(file_path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Warning: Could not process file {file_path}: {e}")
 
     return matching_files
@@ -103,7 +103,7 @@ def move_files_to_rejected(files_to_move: list[Path], processed_dir: Path, rejec
             shutil.move(str(file_path), str(target_path))
             print(f"Moved: {file_path} -> {target_path}")
             moved_count += 1
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error moving {file_path}: {e}")
 
     return moved_count
@@ -172,4 +172,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

@@ -9,7 +9,6 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import boto3
 import zstandard
@@ -62,9 +61,9 @@ def compute_file_hash(file_path: str) -> str:
 class NormalizedEntry:
     s3_path: str
     pagenum: int
-    text: Optional[str]
-    finish_reason: Optional[str]
-    error: Optional[str] = None
+    text: str | None
+    finish_reason: str | None
+    error: str | None = None
 
     @staticmethod
     def from_goldkey(goldkey: str, **kwargs):
@@ -147,11 +146,11 @@ def load_gold_data(gold_data_path: str, max_workers: int = 8) -> dict:
     if not os.path.exists(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 
-    gold_data: Dict[str, str] = {}
+    gold_data: dict[str, str] = {}
     total_errors = 0
     total_overruns = 0
 
-    gold_jsonl_files: List[str] = list_jsonl_files(gold_data_path)
+    gold_jsonl_files: list[str] = list_jsonl_files(gold_data_path)
 
     def process_file(path: str) -> tuple:
         """Process a single JSONL file and return its data and error counts."""
@@ -184,7 +183,7 @@ def load_gold_data(gold_data_path: str, max_workers: int = 8) -> dict:
                 gold_data.update(file_gold_data)
                 total_errors += file_errors
                 total_overruns += file_overruns
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError) as e:
                 print(f"Error processing a file: {e}")
 
     print(f"Loaded {len(gold_data):,} gold data entries for comparison")
@@ -314,7 +313,7 @@ def do_eval(gold_data_path: str, eval_data_path: str, review_page_name: str, rev
             total_pages_compared |= page_data.keys()
 
             # Generate the eval data
-            for pd_key, pd in page_data.items():
+            for pd in page_data.values():
                 # if pd["alignment"] > 0.97:
                 #     continue
 
@@ -329,7 +328,7 @@ def do_eval(gold_data_path: str, eval_data_path: str, review_page_name: str, rev
     print(f"Found {total_errors} errors in the eval set, and {total_overruns} cases of length overruns")
     print(f"Mean page-weighted alignment: {total_alignment_score / total_pages:.3f}")
     print(f"Mean char-weighted alignment: {total_char_alignment_score / total_weight:.3f}")
-    print("")
+    print()
     print("...creating review page")
 
     # TODO Temporary filter to see other stuff

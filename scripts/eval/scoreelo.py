@@ -1,7 +1,7 @@
 import csv
 import re
 from collections import defaultdict
-from typing import Any, DefaultDict
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import requests  # type: ignore
@@ -42,7 +42,7 @@ def fetch_presigned_datastore(presigned_url):
         resp = requests.get(cleaned_url, headers={"Host": url_parts.netloc, "User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         return resp.json()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error fetching datastore from {presigned_url}: {e}")
         return {}
 
@@ -109,7 +109,7 @@ def build_comparison_report(entries_dict, datastore):
       comparisons[(A, B)] = [A_wins, B_wins],
         where A < B lexicographically in that tuple.
     """
-    comparisons: DefaultDict[Any, list[int]] = defaultdict(lambda: [0, 0])
+    comparisons: defaultdict[Any, list[int]] = defaultdict(lambda: [0, 0])
 
     for entry_id, vote in datastore.items():
         if entry_id not in entries_dict:
@@ -180,7 +180,7 @@ def compute_elo_arena(comparisons, k=32, initial_rating=1500):
     """
     # 1) Collect all unique methods
     methods = set()
-    for A, B in comparisons.keys():
+    for A, B in comparisons:
         methods.add(A)
         methods.add(B)
 
@@ -226,7 +226,7 @@ def make_report(urls):
     for url in urls:
         try:
             html = fetch_review_page_html(url)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error fetching HTML from {url}: {e}")
             continue
 
@@ -261,7 +261,7 @@ def make_report(urls):
         total = A_wins + B_wins
         A_rate = A_wins / total * 100 if total else 0
         B_rate = B_wins / total * 100 if total else 0
-        print(f"{A} vs {B}: " f"{A} wins={A_wins} ({A_rate:.1f}%), " f"{B} wins={B_wins} ({B_rate:.1f}%)")
+        print(f"{A} vs {B}: {A} wins={A_wins} ({A_rate:.1f}%), {B} wins={B_wins} ({B_rate:.1f}%)")
 
     # -- ADDED: Write the same data to scoreelo.csv
     with open("scoreelo.csv", "w", newline="", encoding="utf-8") as csvfile:

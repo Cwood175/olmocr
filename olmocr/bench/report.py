@@ -1,6 +1,5 @@
 import glob
 import os
-from typing import Dict, List, Tuple
 
 from tqdm import tqdm
 
@@ -10,7 +9,7 @@ from .tests import BasePDFTest
 
 
 def generate_html_report(
-    test_results_by_candidate: Dict[str, Dict[str, Dict[int, List[Tuple[BasePDFTest, bool, str]]]]], pdf_folder: str, output_file: str
+    test_results_by_candidate: dict[str, dict[str, dict[int, list[tuple[BasePDFTest, bool, str]]]]], pdf_folder: str, output_file: str
 ) -> None:
     """
     Generate a simple static HTML report of test results.
@@ -161,17 +160,17 @@ def generate_html_report(
                         if hasattr(test, "cell"):
                             cell = getattr(test, "cell", "")
                             html += f"""            <p><strong>Table cell:</strong> "{cell}"</p>\n"""
-                        if hasattr(test, "up") and getattr(test, "up", None):
-                            up = getattr(test, "up")
+                        if hasattr(test, "up") and test.up:
+                            up = test.up
                             html += f"""            <p><strong>Above:</strong> "{up}"</p>\n"""
-                        if hasattr(test, "down") and getattr(test, "down", None):
-                            down = getattr(test, "down")
+                        if hasattr(test, "down") and test.down:
+                            down = test.down
                             html += f"""            <p><strong>Below:</strong> "{down}"</p>\n"""
-                        if hasattr(test, "left") and getattr(test, "left", None):
-                            left = getattr(test, "left")
+                        if hasattr(test, "left") and test.left:
+                            left = test.left
                             html += f"""            <p><strong>Left:</strong> "{left}"</p>\n"""
-                        if hasattr(test, "right") and getattr(test, "right", None):
-                            right = getattr(test, "right")
+                        if hasattr(test, "right") and test.right:
+                            right = test.right
                             html += f"""            <p><strong>Right:</strong> "{right}"</p>\n"""
                     elif test_type == "math" and hasattr(test, "math"):
                         math = getattr(test, "math", "")
@@ -191,8 +190,8 @@ def generate_html_report(
                         html += """        <h4>PDF Render:</h4>\n"""
                         image_data = render_pdf_to_base64webp(pdf_path, page, 1024)
                         html += f"""        <img class="pdf-image" alt="PDF Page {page}" src="data:image/webp;base64,{image_data}" />\n"""
-                    except Exception as e:
-                        html += f"""        <p>Error rendering PDF: {str(e)}</p>\n"""
+                    except (OSError, ValueError, RuntimeError) as e:
+                        html += f"""        <p>Error rendering PDF: {e!s}</p>\n"""
 
                     # Get the Markdown content for this page
                     md_content = None
@@ -203,8 +202,8 @@ def generate_html_report(
                             md_file_path = md_files[0]  # Use the first repeat as an example
                             with open(md_file_path, "r", encoding="utf-8") as f:
                                 md_content = f.read()
-                    except Exception as e:
-                        md_content = f"Error loading Markdown content: {str(e)}"
+                    except (OSError, ValueError) as e:
+                        md_content = f"Error loading Markdown content: {e!s}"
 
                     if md_content:
                         html += """        <h4>Markdown Content:</h4>\n"""

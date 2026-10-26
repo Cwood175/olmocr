@@ -57,6 +57,11 @@ async def run_sync_in_executor(func, executor, *args, **kwargs):
 
 async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async, executor=None, use_executor=True):
     """Process a single PDF and save the result to output_path"""
+
+    def write_output(content):
+        with open(output_path, "w") as out_f:
+            out_f.write(content)
+
     try:
         if is_async:
             # Run async function directly
@@ -71,20 +76,17 @@ async def process_pdf(pdf_path, page_num, method, kwargs, output_path, is_async,
         if markdown is None:
             print(f"Warning, did not get output for {os.path.basename(output_path)}")
             # Write blank to this file, so that it's marked as an error and not just skipped in evals
-            with open(output_path, "w") as out_f:
-                out_f.write("")
+            await run_sync_in_executor(write_output, executor, "")
             return False
 
         # Write the markdown to the output file
-        with open(output_path, "w") as out_f:
-            out_f.write(markdown)
+        await run_sync_in_executor(write_output, executor, markdown)
 
         return True
-    except Exception as ex:
-        print(f"Exception {str(ex)} occurred while processing {os.path.basename(output_path)}")
+    except Exception as ex:  # noqa: BLE001
+        print(f"Exception {ex!s} occurred while processing {os.path.basename(output_path)}")
         # Write blank to this file, so that it's marked as an error and not just skipped in evals
-        with open(output_path, "w") as out_f:
-            out_f.write("")
+        await run_sync_in_executor(write_output, executor, "")
         return False
 
 
@@ -157,7 +159,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                         for temp_file in temp_image_files:
                             try:
                                 os.remove(temp_file)
-                            except Exception as e:
+                            except Exception as e:  # noqa: BLE001
                                 print(f"Warning: Failed to remove temporary file {temp_file}: {e}")
 
                 for repeat in range(1, repeats + 1):
@@ -200,7 +202,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                                 result = await task
                                 if result:
                                     completed += 1
-                            except Exception as e:
+                            except Exception as e:  # noqa: BLE001
                                 print(f"Task failed: {e}")
                             finally:
                                 pbar.update(1)
@@ -211,7 +213,7 @@ async def process_pdfs(config, pdf_directory, data_directory, repeats, remove_te
                                 result = await task
                                 if result:
                                     completed += 1
-                            except Exception as e:
+                            except Exception as e:  # noqa: BLE001
                                 print(f"Task failed: {e}")
                             finally:
                                 pbar.update(1)
@@ -272,7 +274,7 @@ if __name__ == "__main__":
     for method_arg in args.methods:
         method_name, extra_kwargs, folder_name = parse_method_arg(method_arg)
         if method_name not in available_methods:
-            parser.error(f"Unknown method: {method_name}. " f"Available methods: {', '.join(available_methods.keys())}")
+            parser.error(f"Unknown method: {method_name}. Available methods: {', '.join(available_methods.keys())}")
         module_path, function_name = available_methods[method_name]
         # Dynamically import the module and get the function.
         module = importlib.import_module(module_path)

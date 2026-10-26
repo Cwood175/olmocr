@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 import json
 import random
@@ -50,7 +49,7 @@ def query_infinigram(ngram, index="v4_rpj_llama_s4", retries=3):
                 result = response.json()
                 if "count" in result:
                     return result["count"]
-        except Exception:  # type: ignore
+        except requests.exceptions.RequestException:
             time.sleep(1)
     return 0
 
@@ -149,7 +148,7 @@ def main():
             continue
         try:
             doc = json.loads(line)
-        except Exception as e:
+        except json.JSONDecodeError as e:
             print(f"Error parsing JSON in {key}: {e}")
             continue
         doc_id, match_count, sample_count, details = process_document(doc, tokenizer, args.ngram_size, args.num_ngrams, index=args.index)
@@ -158,7 +157,7 @@ def main():
         print(f"\nDocument ID: {doc_id}")
         for flag, ngram in details:
             # Print the flag in a fixed-width field (4 characters) followed by the n-gram representation.
-            print(f"{flag:4} {repr(ngram)}")
+            print(f"{flag:4} {ngram!r}")
         percentage = (match_count / sample_count * 100) if sample_count else 0
         print(f"Matched n-grams: {match_count}/{sample_count} ({percentage:.2f}%)")
 
