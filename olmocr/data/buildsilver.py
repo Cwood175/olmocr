@@ -3,8 +3,8 @@ import glob
 import json
 import os
 import random
+from collections.abc import Generator
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Generator
 from urllib.parse import urlparse
 
 import boto3
@@ -104,7 +104,7 @@ def process_pdf(pdf_path: str, first_n_pages: int, max_sample_pages: int, no_fil
         try:
             query = build_page_query(local_pdf_path, pretty_pdf_path, page)
             result.append(query)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error processing page {page} of {pdf_path}: {e}")
 
     return result
@@ -190,7 +190,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     # Open the first file for writing
-    cur_file = open(cur_file_path, "w")
+    cur_file = open(cur_file_path, "w")  # noqa: SIM115
 
     # Counter to track PDFs that produce at least one output
     pdfs_with_output = 0
@@ -218,7 +218,7 @@ def main():
                             cur_file.close()
                             cur_file_num += 1
                             cur_file_path = os.path.join(output_dir, f"output_{cur_file_num}.jsonl")
-                            cur_file = open(cur_file_path, "w")
+                            cur_file = open(cur_file_path, "w")  # noqa: SIM115
                             cur_file_size = 0  # Reset file size
 
                         # Write the JSON entry to the file
@@ -236,8 +236,8 @@ def main():
                             executor.shutdown(cancel_futures=True)
                             break
 
-                except Exception as e:
-                    print(f"Error processing {pdf_path}: {str(e)}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"Error processing {pdf_path}: {e!s}")
 
     # Close the last open file
     cur_file.close()

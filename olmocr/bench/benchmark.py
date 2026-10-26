@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 This script runs olmocr bench.
 It will take as an argument a folder, and scan it for .jsonl files which contain the various rules and properties that we will check.
@@ -20,7 +19,6 @@ import random
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
 
 from pypdf import PdfReader
 from tqdm import tqdm
@@ -31,8 +29,8 @@ from .utils import calculate_bootstrap_ci
 
 
 def evaluate_candidate(
-    candidate_folder: str, all_tests: List[BasePDFTest], pdf_basenames: List[str], force: bool = False
-) -> Tuple[float, int, List[str], List[str], Dict[str, List[float]], List[float], Dict[str, Dict[int, List[Tuple[BasePDFTest, bool, str]]]]]:
+    candidate_folder: str, all_tests: list[BasePDFTest], pdf_basenames: list[str], force: bool = False
+) -> tuple[float, int, list[str], list[str], dict[str, list[float]], list[float], dict[str, dict[int, list[tuple[BasePDFTest, bool, str]]]]]:
     """
     For the candidate folder (pipeline tool output), validate that it contains at least one .md file
     (i.e. repeated generations like _pg{page}_repeat{repeat}.md) for every PDF in the pdf folder.
@@ -68,7 +66,7 @@ def evaluate_candidate(
 
         if not md_files and not force:
             candidate_errors.append(
-                f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} " f"(expected files matching {md_base}_pg{{page}}_repeat*.md)."
+                f"Candidate '{candidate_name}' is missing MD repeats for {pdf_name} (expected files matching {md_base}_pg{{page}}_repeat*.md)."
             )
         else:
             pdf_to_md_files[pdf_name] = md_files
@@ -77,7 +75,7 @@ def evaluate_candidate(
         return (0.0, len(all_tests), candidate_errors, test_failures, test_type_breakdown, all_test_scores, test_results)
 
     # Define an inner function to evaluate a single test
-    def process_test(test: BasePDFTest) -> Tuple[float, str, str, List[str], Tuple[bool, str]]:
+    def process_test(test: BasePDFTest) -> tuple[float, str, str, list[str], tuple[bool, str]]:
         local_errors = []
         test_failure = None
         pdf_name = test.pdf
@@ -108,7 +106,7 @@ def evaluate_candidate(
             try:
                 with open(md_path, "r", encoding="utf-8") as f:
                     md_content = f.read()
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 local_errors.append(f"Error reading {md_path}: {e}")
                 continue
 
@@ -118,7 +116,7 @@ def evaluate_candidate(
                     repeat_passes += 1
                 else:
                     explanations.append(explanation)
-            except Exception as e:
+            except (OSError, ValueError, TypeError, AttributeError, KeyError, IndexError, RuntimeError, AssertionError, re.error) as e:
                 local_errors.append(f"Error running test {test.id} on {md_path}: {e}")
                 explanations.append(str(e))
 
@@ -314,7 +312,7 @@ def main():
                             break
 
         # Gather all the scores by jsonl file for CI calculation
-        for jsonl_file, results in jsonl_results.items():
+        for results in jsonl_results.values():
             if results["scores"]:
                 jsonl_file_sizes.append(len(results["scores"]))
                 jsonl_scores.extend(results["scores"])
@@ -335,7 +333,7 @@ def main():
                     print(f"  [FAIL] {fail}")
             # Calculate and show the per-category average score
             jsonl_pass_rates = []
-            for _, results in jsonl_results.items():
+            for results in jsonl_results.values():
                 if results["total"] > 0:
                     pass_rate = results["passed"] / results["total"]
                     jsonl_pass_rates.append(pass_rate)
@@ -373,7 +371,7 @@ def main():
 
         # Calculate new overall score as average of per-JSONL pass rates
         jsonl_pass_rates = []
-        for jsonl_file, results in jsonl_results.items():
+        for results in jsonl_results.values():
             if results["total"] > 0:
                 pass_rate = results["passed"] / results["total"]
                 jsonl_pass_rates.append(pass_rate)
@@ -405,7 +403,7 @@ def main():
             if results["total"] > 0:
                 pass_rate = (results["passed"] / results["total"]) * 100
                 print(f"        {jsonl_file:30s}: {pass_rate:0.1f}% ({results['passed']}/{results['total']} tests)")
-        print("")
+        print()
 
     # Generate HTML report if requested
     if args.test_report:

@@ -1,10 +1,10 @@
-#!/usr/bin/env python
 import argparse
 import json
 import os
 from collections import defaultdict
 
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PdfError
 
 
 def get_pdf_page_refs(dataset_jsonl):
@@ -43,7 +43,7 @@ def extract_single_page_pdfs(source_pdf_dir, target_pdf_dir, pdf_page_tests):
     # Track all PDFs we need to process
     processed_pairs = set()
 
-    for pdf_name, page_num in pdf_page_tests.keys():
+    for pdf_name, page_num in pdf_page_tests:
         if (pdf_name, page_num) in processed_pairs:
             continue
 
@@ -80,8 +80,8 @@ def extract_single_page_pdfs(source_pdf_dir, target_pdf_dir, pdf_page_tests):
             processed_pairs.add((pdf_name, page_num))
             print(f"Created single-page PDF: {output_path}")
 
-        except Exception as e:
-            print(f"Error processing {pdf_name} page {page_num}: {str(e)}")
+        except (OSError, ValueError, PdfError) as e:
+            print(f"Error processing {pdf_name} page {page_num}: {e!s}")
 
     return processed_pairs
 
